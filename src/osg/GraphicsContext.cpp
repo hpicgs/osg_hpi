@@ -521,6 +521,8 @@ void GraphicsContext::close(bool callCloseImplementation)
 {
     OSG_INFO<<"close("<<callCloseImplementation<<")"<<this<<std::endl;
 
+    moveBack();
+
     // switch off the graphics thread...
     setGraphicsThread(0);
 

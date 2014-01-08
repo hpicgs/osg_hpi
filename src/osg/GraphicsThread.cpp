@@ -24,6 +24,16 @@ GraphicsThread::GraphicsThread()
 {
 }
 
+void GraphicsThread::prepare()
+{
+    // move the graphics context to the new thread.
+    GraphicsContext* graphicsContext = dynamic_cast<GraphicsContext*>(_parent.get());
+    if (graphicsContext)
+    {
+        graphicsContext->moveToThread(getImplementation());
+    }
+}
+
 void GraphicsThread::run()
 {
     // make the graphics context current.

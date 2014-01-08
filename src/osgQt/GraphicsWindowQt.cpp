@@ -716,6 +716,7 @@ bool GraphicsWindowQt::releaseContextImplementation()
 
 void GraphicsWindowQt::swapBuffersImplementation()
 {
+    _widget->makeCurrent();
     _widget->swapBuffers();
 
     // FIXME: the processDeferredEvents should really be executed in a GUI (main) thread context but
@@ -735,6 +736,22 @@ void GraphicsWindowQt::requestWarpPointer( float x, float y )
 {
     if ( _widget )
         QCursor::setPos( _widget->mapToGlobal(QPoint((int)x,(int)y)) );
+}
+
+
+
+void GraphicsWindowQt::moveToThread(void *thread)
+{
+    QThread* qThread = static_cast<QThread*>(thread);
+    if (qThread && _widget->context())
+    {
+        _widget->context()->moveToThread(qThread);
+    }
+}
+
+void GraphicsWindowQt::moveBack()
+{
+    _widget->context()->moveToThread(_widget->thread());
 }
 
 
