@@ -14,6 +14,7 @@
 #include "TXFFont.h"
 #include <iostream>
 #include <osg/Notify>
+#include <algorithm>
 
 #define FNT_BYTE_FORMAT         0
 #define FNT_BITMAP_FORMAT       1

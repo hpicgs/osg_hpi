@@ -15,6 +15,7 @@
 #include "scene.h"
 #include "dxfBlock.h"
 #include "codeValue.h"
+#include <algorithm>
 
 #include <osg/io_utils> // just for debugging
 
