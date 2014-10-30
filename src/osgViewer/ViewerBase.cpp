@@ -504,7 +504,6 @@ void ViewerBase::startThreading()
         if (gc->getGraphicsThread() && !gc->getGraphicsThread()->isRunning())
         {
             OSG_INFO<<"  gc->getGraphicsThread()->startThread() "<<gc->getGraphicsThread()<<std::endl;
-            gc->getGraphicsThread()->prepare();
             gc->getGraphicsThread()->startThread();
             // OpenThreads::Thread::YieldCurrentThread();
         }
