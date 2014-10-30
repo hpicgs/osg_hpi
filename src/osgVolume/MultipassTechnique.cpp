@@ -14,6 +14,7 @@
 #include <osgVolume/MultipassTechnique>
 #include <osgVolume/VolumeTile>
 #include <osgVolume/VolumeScene>
+#include <osgVolume/VolumeSettings>
 
 #include <osg/Geometry>
 #include <osg/ValueObject>
@@ -22,7 +23,6 @@
 #include <osg/Program>
 #include <osg/Material>
 #include <osg/CullFace>
-#include <osg/TexGen>
 #include <osg/Texture1D>
 #include <osg/Texture2D>
 #include <osg/Texture3D>
@@ -148,7 +148,189 @@ osg::Image* createDownsampledImage(osg::Image* sourceImage)
     return targetImage.release();
 }
 
+////////////////////////////////////////////////////////////////////////
+//
+// MultipassTileData
+//
 
+class RTTCameraCullCallback : public osg::NodeCallback
+{
+    public:
+
+        RTTCameraCullCallback(MultipassTechnique::MultipassTileData* tileData, MultipassTechnique* mt):
+            _tileData(tileData),
+            _mt(mt) {}
+
+        virtual void operator()(osg::Node* node, osg::NodeVisitor* nv)
+        {
+            osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(nv);
+
+            cv->pushProjectionMatrix(_tileData->projectionMatrix.get());
+
+            // OSG_NOTICE<<"Traversing tile subgraph for pre-render "<<_mt->getVolumeTile()->getNumChildren()<<std::endl;
+
+            _mt->getVolumeTile()->osg::Group::traverse(*cv);
+
+            cv->popProjectionMatrix();
+        }
+
+    protected:
+
+        virtual ~RTTCameraCullCallback() {}
+
+        osg::observer_ptr<osgVolume::MultipassTechnique::MultipassTileData> _tileData;
+        osg::observer_ptr<osgVolume::MultipassTechnique> _mt;
+};
+
+MultipassTechnique::MultipassTileData::MultipassTileData(osgUtil::CullVisitor* cv, MultipassTechnique* mpt):
+    TileData(),
+    multipassTechnique(mpt)
+{
+    currentRenderingMode = mpt->computeRenderingMode();
+
+    int width = 512;
+    int height = 512;
+
+    osg::Viewport* viewport = cv->getCurrentRenderStage()->getViewport();
+    if (viewport)
+    {
+        width = static_cast<int>(viewport->width());
+        height = static_cast<int>(viewport->height());
+    }
+
+    stateset = new osg::StateSet;
+
+    eyeToTileUniform = new osg::Uniform("eyeToTile",osg::Matrixf());
+    stateset->addUniform(eyeToTileUniform.get());
+
+    tileToImageUniform = new osg::Uniform("tileToImage",osg::Matrixf());
+    stateset->addUniform(tileToImageUniform.get());
+
+    switch(currentRenderingMode)
+    {
+        case(MultipassTechnique::CUBE):
+        {
+            // no need to set up RTT Cameras;
+            OSG_NOTICE<<"Setting up MultipassTileData for CUBE rendering"<<std::endl;
+
+            break;
+        }
+        case(MultipassTechnique::HULL):
+        {
+            OSG_NOTICE<<"Setting up MultipassTileData for HULL rendering"<<std::endl;
+            setUp(frontFaceRttCamera, frontFaceDepthTexture, width, height);
+            frontFaceRttCamera->setName("frontFaceRttCamera");
+            frontFaceRttCamera->setCullCallback(new RTTCameraCullCallback(this, mpt));
+            frontFaceRttCamera->getOrCreateStateSet()->setAttributeAndModes(new osg::CullFace(osg::CullFace::BACK), osg::StateAttribute::ON|osg::StateAttribute::OVERRIDE);
+
+            stateset->setTextureAttribute(2, frontFaceDepthTexture.get(), osg::StateAttribute::ON|osg::StateAttribute::OVERRIDE);
+            break;
+        }
+        case(MultipassTechnique::CUBE_AND_HULL):
+        {
+            OSG_NOTICE<<"Setting up MultipassTileData for CUBE_AND_HULL rendering"<<std::endl;
+            setUp(frontFaceRttCamera, frontFaceDepthTexture, width, height);
+            frontFaceRttCamera->setName("frontFaceRttCamera");
+            frontFaceRttCamera->setCullCallback(new RTTCameraCullCallback(this, mpt));
+            frontFaceRttCamera->getOrCreateStateSet()->setAttributeAndModes(new osg::CullFace(osg::CullFace::BACK), osg::StateAttribute::ON|osg::StateAttribute::OVERRIDE);
+
+            setUp(backFaceRttCamera, backFaceDepthTexture, width, height);
+            backFaceRttCamera->setName("backFaceRttCamera");
+            backFaceRttCamera->setCullCallback(new RTTCameraCullCallback(this, mpt));
+            backFaceRttCamera->getOrCreateStateSet()->setAttributeAndModes(new osg::CullFace(osg::CullFace::FRONT), osg::StateAttribute::ON|osg::StateAttribute::OVERRIDE);
+
+            stateset->setTextureAttribute(2, frontFaceDepthTexture.get(), osg::StateAttribute::ON|osg::StateAttribute::OVERRIDE);
+            stateset->setTextureAttribute(3, backFaceDepthTexture.get(), osg::StateAttribute::ON|osg::StateAttribute::OVERRIDE);
+            break;
+        }
+    }
+
+}
+
+void MultipassTechnique::MultipassTileData::setUp(osg::ref_ptr<osg::Camera>& camera, osg::ref_ptr<osg::Texture2D>& depthTexture, int width, int height)
+{
+    depthTexture = new osg::Texture2D;
+    depthTexture->setTextureSize(width, height);
+    depthTexture->setInternalFormat(GL_DEPTH_COMPONENT);
+    depthTexture->setFilter(osg::Texture2D::MIN_FILTER,osg::Texture2D::LINEAR);
+    depthTexture->setFilter(osg::Texture2D::MAG_FILTER,osg::Texture2D::LINEAR);
+    depthTexture->setWrap(osg::Texture2D::WRAP_S,osg::Texture2D::CLAMP_TO_BORDER);
+    depthTexture->setWrap(osg::Texture2D::WRAP_T,osg::Texture2D::CLAMP_TO_BORDER);
+    depthTexture->setBorderColor(osg::Vec4(1.0f,1.0f,1.0f,1.0f));
+
+    camera = new osg::Camera;
+    camera->attach(osg::Camera::DEPTH_BUFFER, depthTexture.get());
+    camera->setViewport(0, 0, width, height);
+
+    // clear the depth and colour bufferson each clear.
+    camera->setClearMask(GL_DEPTH_BUFFER_BIT);
+
+    // set the camera to render before the main camera.
+    camera->setRenderOrder(osg::Camera::PRE_RENDER);
+
+    // tell the camera to use OpenGL frame buffer object where supported.
+    camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+
+    camera->setReferenceFrame(osg::Transform::RELATIVE_RF);
+    camera->setProjectionMatrix(osg::Matrixd::identity());
+    camera->setViewMatrix(osg::Matrixd::identity());
+}
+
+void MultipassTechnique::MultipassTileData::update(osgUtil::CullVisitor* cv)
+{
+    if (currentRenderingMode != multipassTechnique->computeRenderingMode())
+    {
+        OSG_NOTICE<<"Warning: need to re-structure MP setup."<<std::endl;
+    }
+
+    active = true;
+    nodePath = cv->getNodePath();
+    projectionMatrix = cv->getProjectionMatrix();
+    modelviewMatrix = cv->getModelViewMatrix();
+
+    int width = 512;
+    int height = 512;
+
+    osg::Viewport* viewport = cv->getCurrentRenderStage()->getViewport();
+    if (viewport)
+    {
+        width = static_cast<int>(viewport->width());
+        height = static_cast<int>(viewport->height());
+    }
+
+    if (frontFaceDepthTexture.valid())
+    {
+        if (frontFaceDepthTexture->getTextureWidth()!=width || frontFaceDepthTexture->getTextureHeight()!=height)
+        {
+            OSG_NOTICE<<"Need to change texture size to "<<width<<", "<<height<<std::endl;
+            frontFaceDepthTexture->setTextureSize(width, height);
+            frontFaceRttCamera->setViewport(0, 0, width, height);
+            if (frontFaceRttCamera->getRenderingCache())
+            {
+                frontFaceRttCamera->getRenderingCache()->releaseGLObjects(0);
+            }
+        }
+    }
+
+    if (backFaceDepthTexture.valid())
+    {
+        if (backFaceDepthTexture->getTextureWidth()!=width || backFaceDepthTexture->getTextureHeight()!=height)
+        {
+            OSG_NOTICE<<"Need to change texture size to "<<width<<", "<<height<<std::endl;
+            backFaceDepthTexture->setTextureSize(width, height);
+            backFaceRttCamera->setViewport(0, 0, width, height);
+            if (backFaceRttCamera->getRenderingCache())
+            {
+                backFaceRttCamera->getRenderingCache()->releaseGLObjects(0);
+            }
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+//
+// MultipassTechnique
+//
 MultipassTechnique::MultipassTechnique()
 {
 }
@@ -172,6 +354,38 @@ osg::StateSet* MultipassTechnique::createStateSet(osg::StateSet* statesetPrototy
 
     return stateset.release();
 }
+
+MultipassTechnique::RenderingMode MultipassTechnique::computeRenderingMode()
+{
+    bool hasHull = (_volumeTile->getNumChildren()>0);
+
+    if (!hasHull)
+    {
+        return CUBE;
+    }
+
+    CollectPropertiesVisitor cpv(false);
+    if (_volumeTile->getLayer()->getProperty())
+    {
+        _volumeTile->getLayer()->getProperty()->accept(cpv);
+    }
+
+    double etfValue = cpv._exteriorTransparencyFactorProperty.valid() ? cpv._exteriorTransparencyFactorProperty->getValue() : 0.0;
+
+    if (etfValue<=0.0)
+    {
+        return HULL;
+    }
+    else if (etfValue<1.0)
+    {
+        return CUBE_AND_HULL;
+    }
+    else
+    {
+        return CUBE;
+    }
+}
+
 
 void MultipassTechnique::init()
 {
@@ -295,10 +509,16 @@ void MultipassTechnique::init()
     OSG_NOTICE<<"MultipassTechnique::init() : geometryMatrix = "<<geometryMatrix<<std::endl;
     OSG_NOTICE<<"MultipassTechnique::init() : imageMatrix = "<<imageMatrix<<std::endl;
 
-    osg::ref_ptr<osg::StateSet> stateset = _transform->getOrCreateStateSet();
+    osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
+    _volumeRenderStateSet = stateset;
 
-    unsigned int texgenTextureUnit = 0;
-    unsigned int volumeTextureUnit = 2;
+    // texture unit 0 is for main scene colour buffer
+    // texture unit 1 is for main scene depth buffer
+    // texture unit 2 is for front depth buffer of hull when required
+    // texture unit 3 is for back depth depth of hull when required
+    unsigned int volumeTextureUnit = 4;
+    unsigned int transferFunctionTextureUnit = 5;
+
 
     // set up uniforms
     {
@@ -306,6 +526,7 @@ void MultipassTechnique::init()
         stateset->addUniform(new osg::Uniform("depthTexture",1));
 
         stateset->setMode(GL_ALPHA_TEST,osg::StateAttribute::ON);
+        //stateset->setMode(GL_DEPTH_TEST,osg::StateAttribute::OFF);
 
         float alphaFuncValue = 0.1;
         if (cpv._isoProperty.valid())
@@ -324,6 +545,11 @@ void MultipassTechnique::init()
         else
             stateset->addUniform(new osg::Uniform("TransparencyValue",1.0f));
 
+        if (cpv._exteriorTransparencyFactorProperty.valid())
+            stateset->addUniform(cpv._exteriorTransparencyFactorProperty->getUniform());
+        else
+            stateset->addUniform(new osg::Uniform("ExteriorTransparencyFactorValue",0.0f));
+
 
         if (cpv._afProperty.valid())
             stateset->addUniform(cpv._afProperty->getUniform());
@@ -341,21 +567,6 @@ void MultipassTechnique::init()
             tf = dynamic_cast<osg::TransferFunction1D*>(cpv._tfProperty->getTransferFunction());
         }
 
-        osg::ref_ptr<osg::TexGen> texgen = new osg::TexGen;
-        texgen->setMode(osg::TexGen::OBJECT_LINEAR);
-        texgen->setPlanesFromMatrix( geometryMatrix * osg::Matrix::inverse(imageMatrix));
-
-        if (masterLocator)
-        {
-            osg::ref_ptr<TexGenLocatorCallback> locatorCallback = new TexGenLocatorCallback(texgen, masterLocator, layerLocator);
-            masterLocator->addCallback(locatorCallback.get());
-            if (masterLocator != layerLocator)
-            {
-                if (layerLocator) layerLocator->addCallback(locatorCallback.get());
-            }
-        }
-
-        stateset->setTextureAttributeAndModes(texgenTextureUnit, texgen.get(), osg::StateAttribute::ON);
     }
 
 
@@ -405,9 +616,9 @@ void MultipassTechnique::init()
         {
             texture3D->setInternalFormatMode(internalFormatMode);
         }
-        texture3D->setImage(image_3d);
+        texture3D->setImage(image_3d.get());
 
-        stateset->setTextureAttributeAndModes(volumeTextureUnit, texture3D, osg::StateAttribute::ON);
+        stateset->setTextureAttributeAndModes(volumeTextureUnit, texture3D.get(), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
 
         osg::ref_ptr<osg::Uniform> baseTextureSampler = new osg::Uniform("volumeTexture", int(volumeTextureUnit));
         stateset->addUniform(baseTextureSampler.get());
@@ -444,9 +655,7 @@ void MultipassTechnique::init()
         tf_texture->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
         tf_texture->setWrap(osg::Texture::WRAP_R,osg::Texture::CLAMP_TO_EDGE);
 
-        unsigned int transferFunctionTextureUnit = volumeTextureUnit+1;
-
-        stateset->setTextureAttributeAndModes(transferFunctionTextureUnit, tf_texture.get(), osg::StateAttribute::ON);
+        stateset->setTextureAttributeAndModes(transferFunctionTextureUnit, tf_texture.get(), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
         stateset->addUniform(new osg::Uniform("tfTexture",int(transferFunctionTextureUnit)));
         stateset->addUniform(new osg::Uniform("tfOffset",tfOffset));
         stateset->addUniform(new osg::Uniform("tfScale",tfScale));
@@ -457,106 +666,125 @@ void MultipassTechnique::init()
     osg::ref_ptr<osg::CullFace> front_CullFace = new osg::CullFace(osg::CullFace::BACK);
     osg::ref_ptr<osg::CullFace> back_CullFace = new osg::CullFace(osg::CullFace::FRONT);
 
-
-
-    osg::ref_ptr<osg::Shader> computeRayColorShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_compute_ray_color.frag");
-#if 0
-    if (!computeRayColorShader)
-    {
-        #include "Shaders/volume_compute_ray_color_frag.cpp";
-        computeRayColorShader = new osg::Shader(osg::Shader::FRAGMENT, volume_compute_ray_color_frag);
-    }
-#endif
-
     osg::ref_ptr<osg::Shader> main_vertexShader = osgDB::readRefShaderFile(osg::Shader::VERTEX, "shaders/volume_multipass.vert");
-#if 0
     if (!main_vertexShader)
     {
         #include "Shaders/volume_multipass_vert.cpp"
-        main_vertexShader = new osg::Shader(osg::Shader::VERTEX, volume_multipass_vert));
+        main_vertexShader = new osg::Shader(osg::Shader::VERTEX, volume_multipass_vert);
     }
-#endif
 
-    osg::ref_ptr<osg::Shader> front_main_fragmentShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_multipass_front.frag");
-#if 0
-    if (!front_main_fragmentShader)
+
+
+    osg::ref_ptr<osg::Shader> computeRayColorShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_compute_ray_color.frag");
+    if (!computeRayColorShader)
     {
-        #include "Shaders/volume_multipass_front_frag.cpp"
-        front_main_fragmentShader = new osg::Shader(osg::Shader::VERTEX, volume_multipass_front_frag));
+        #include "Shaders/volume_compute_ray_color_frag.cpp"
+        computeRayColorShader = new osg::Shader(osg::Shader::FRAGMENT, volume_compute_ray_color_frag);
     }
-#endif
-
-
-    osg::ref_ptr<osg::Shader> back_main_fragmentShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_multipass_back.frag");
-#if 0
-    if (!back_main_fragmentShader)
-    {
-        #include "Shaders/volume_multipass_back_frag.cpp"
-        back_main_fragmentShader = new osg::Shader(osg::Shader::VERTEX, volume_multipass_back_frag));
-    }
-#endif
 
     // clear any previous settings
     _stateSetMap.clear();
 
-    osg::ref_ptr<osg::StateSet> front_stateset_prototype = new osg::StateSet;
-    osg::ref_ptr<osg::Program> front_program_prototype = new osg::Program;
-    {
-        front_stateset_prototype->setAttributeAndModes(front_CullFace.get(), osg::StateAttribute::ON);
 
-        front_program_prototype->addShader(main_vertexShader.get());
-        front_program_prototype->addShader(front_main_fragmentShader.get());
-        front_program_prototype->addShader(computeRayColorShader.get());
+    // set up the program template for rendering just the cube
+    osg::ref_ptr<osg::Shader> cube_main_fragmentShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_multipass_cube.frag");;
+    if (!cube_main_fragmentShader)
+    {
+        #include "Shaders/volume_multipass_cube_frag.cpp"
+        cube_main_fragmentShader = new osg::Shader(osg::Shader::FRAGMENT, volume_multipass_cube_frag);
+    }
+    osg::ref_ptr<osg::StateSet> cube_stateset_prototype = new osg::StateSet;
+    osg::ref_ptr<osg::Program> cube_program_prototype = new osg::Program;
+    {
+        cube_stateset_prototype->setAttributeAndModes(back_CullFace.get(), osg::StateAttribute::ON|osg::StateAttribute::OVERRIDE);
+
+        cube_program_prototype->addShader(main_vertexShader.get());
+        cube_program_prototype->addShader(cube_main_fragmentShader.get());
+        cube_program_prototype->addShader(computeRayColorShader.get());
     }
 
-    osg::ref_ptr<osg::StateSet> back_stateset_prototype = new osg::StateSet;
-    osg::ref_ptr<osg::Program> back_program_prototype = new osg::Program;
-    {
-        back_stateset_prototype->setAttributeAndModes(back_CullFace.get(), osg::StateAttribute::ON);
 
-        back_program_prototype->addShader(main_vertexShader.get());
-        back_program_prototype->addShader(back_main_fragmentShader.get());
-        back_program_prototype->addShader(computeRayColorShader.get());
+    // set up the program template for rendering just the hull
+    osg::ref_ptr<osg::Shader> hull_main_fragmentShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_multipass_hull.frag");;
+    if (!hull_main_fragmentShader)
+    {
+        #include "Shaders/volume_multipass_hull_frag.cpp"
+        hull_main_fragmentShader = new osg::Shader(osg::Shader::FRAGMENT, volume_multipass_hull_frag);
     }
+    osg::ref_ptr<osg::StateSet> hull_stateset_prototype = new osg::StateSet;
+    osg::ref_ptr<osg::Program> hull_program_prototype = new osg::Program;
+    {
+        hull_stateset_prototype->setAttributeAndModes(back_CullFace.get(), osg::StateAttribute::ON|osg::StateAttribute::OVERRIDE);
+        hull_stateset_prototype->addUniform(new osg::Uniform("frontFaceDepthTexture",2));
+
+        hull_program_prototype->addShader(main_vertexShader.get());
+        hull_program_prototype->addShader(hull_main_fragmentShader.get());
+        hull_program_prototype->addShader(computeRayColorShader.get());
+    }
+
+
+    // set up the program template for rendering just the cube
+    osg::ref_ptr<osg::Shader> cube_and_hull_main_fragmentShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_multipass_cube_and_hull.frag");;
+    if (!cube_and_hull_main_fragmentShader)
+    {
+        #include "Shaders/volume_multipass_cube_and_hull_frag.cpp"
+        cube_and_hull_main_fragmentShader = new osg::Shader(osg::Shader::FRAGMENT, volume_multipass_cube_and_hull_frag);
+    }
+    osg::ref_ptr<osg::StateSet> cube_and_hull_stateset_prototype = new osg::StateSet;
+    osg::ref_ptr<osg::Program> cube_and_hull_program_prototype = new osg::Program;
+    {
+        cube_and_hull_stateset_prototype->setAttributeAndModes(back_CullFace.get(), osg::StateAttribute::ON|osg::StateAttribute::OVERRIDE);
+        cube_and_hull_stateset_prototype->addUniform(new osg::Uniform("frontFaceDepthTexture",2));
+        cube_and_hull_stateset_prototype->addUniform(new osg::Uniform("backFaceDepthTexture",3));
+
+        cube_and_hull_program_prototype->addShader(main_vertexShader.get());
+        cube_and_hull_program_prototype->addShader(cube_and_hull_main_fragmentShader.get());
+        cube_and_hull_program_prototype->addShader(computeRayColorShader.get());
+    }
+
+    // set up the rendering of the front face
+    {
+        _frontFaceStateSet = new osg::StateSet;
+
+        // cull only the bac faces so we write only the front
+        _frontFaceStateSet->setAttributeAndModes(front_CullFace.get(), osg::StateAttribute::ON|osg::StateAttribute::OVERRIDE);
+
+        // set up the front falce
+        osg::ref_ptr<osg::Program> program = new osg::Program;
+        program->addShader(main_vertexShader.get());
+        _frontFaceStateSet->setAttribute(program.get(), osg::StateAttribute::ON|osg::StateAttribute::OVERRIDE);
+    }
+
 
     // STANDARD_SHADERS
     {
         // STANDARD_SHADERS without TransferFunction
         {
             osg::ref_ptr<osg::Shader> accumulateSamplesShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_accumulateSamples_standard.frag");
-            #if 0
             if (!accumulateSamplesShader)
             {
-                #include "Shaders/volume_accumulateSamples_standard_frag.cpp";
+                #include "Shaders/volume_accumulateSamples_standard_frag.cpp"
                 accumulateSamplesShader = new osg::Shader(osg::Shader::FRAGMENT, volume_accumulateSamples_standard_frag);
             }
-            #endif
 
-            // front
-            _stateSetMap[STANDARD_SHADERS|FRONT_SHADERS] = createStateSet(front_stateset_prototype.get(), front_program_prototype.get(), accumulateSamplesShader.get());
-
-            // back
-            _stateSetMap[STANDARD_SHADERS|BACK_SHADERS] = createStateSet(back_stateset_prototype.get(), back_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[STANDARD_SHADERS|CUBE_SHADERS] = createStateSet(cube_stateset_prototype.get(), cube_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[STANDARD_SHADERS|HULL_SHADERS] = createStateSet(hull_stateset_prototype.get(), hull_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[STANDARD_SHADERS|CUBE_AND_HULL_SHADERS] = createStateSet(cube_and_hull_stateset_prototype.get(), cube_and_hull_program_prototype.get(), accumulateSamplesShader.get());
         }
 
         // STANDARD_SHADERS with TransferFunction
         if (tf)
         {
             osg::ref_ptr<osg::Shader> accumulateSamplesShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_accumulateSamples_standard_tf.frag");
-            #if 0
             if (!accumulateSamplesShader)
             {
-                #include "Shaders/volume_accumulateSamples_standard_tf_frag.cpp";
+                #include "Shaders/volume_accumulateSamples_standard_tf_frag.cpp"
                 accumulateSamplesShader = new osg::Shader(osg::Shader::FRAGMENT, volume_accumulateSamples_standard_tf_frag);
             }
-            #endif
 
-
-            // front
-            _stateSetMap[STANDARD_SHADERS|FRONT_SHADERS|TF_SHADERS] = createStateSet(front_stateset_prototype.get(), front_program_prototype.get(), accumulateSamplesShader.get());
-
-            // back
-            _stateSetMap[STANDARD_SHADERS|BACK_SHADERS|TF_SHADERS] = createStateSet(back_stateset_prototype.get(), back_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[STANDARD_SHADERS|CUBE_SHADERS|TF_SHADERS] = createStateSet(cube_stateset_prototype.get(), cube_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[STANDARD_SHADERS|HULL_SHADERS|TF_SHADERS] = createStateSet(hull_stateset_prototype.get(), hull_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[STANDARD_SHADERS|CUBE_AND_HULL_SHADERS|TF_SHADERS] = createStateSet(cube_and_hull_stateset_prototype.get(), cube_and_hull_program_prototype.get(), accumulateSamplesShader.get());
         }
     }
 
@@ -566,39 +794,30 @@ void MultipassTechnique::init()
         // ISO_SHADERS without TransferFunction
         {
             osg::ref_ptr<osg::Shader> accumulateSamplesShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_accumulateSamples_iso.frag");
-            #if 0
             if (!accumulateSamplesShader)
             {
-                #include "Shaders/volume_accumulateSamples_iso_frag.cpp";
+                #include "Shaders/volume_accumulateSamples_iso_frag.cpp"
                 accumulateSamplesShader = new osg::Shader(osg::Shader::FRAGMENT, volume_accumulateSamples_iso_frag);
             }
-            #endif
 
-            // front
-            _stateSetMap[ISO_SHADERS|FRONT_SHADERS] = createStateSet(front_stateset_prototype.get(), front_program_prototype.get(), accumulateSamplesShader.get());
-
-            // back
-            _stateSetMap[ISO_SHADERS|BACK_SHADERS] = createStateSet(back_stateset_prototype.get(), back_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[ISO_SHADERS|CUBE_SHADERS] = createStateSet(cube_stateset_prototype.get(), cube_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[ISO_SHADERS|HULL_SHADERS] = createStateSet(hull_stateset_prototype.get(), hull_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[ISO_SHADERS|CUBE_AND_HULL_SHADERS] = createStateSet(cube_and_hull_stateset_prototype.get(), cube_and_hull_program_prototype.get(), accumulateSamplesShader.get());
         }
 
         // ISO_SHADERS with TransferFunction
         if (tf)
         {
             osg::ref_ptr<osg::Shader> accumulateSamplesShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_accumulateSamples_iso_tf.frag");
-            #if 0
             if (!accumulateSamplesShader)
             {
-                #include "Shaders/volume_accumulateSamples_standard_iso_tf_frag.cpp";
-                accumulateSamplesShader = new osg::Shader(osg::Shader::FRAGMENT, volume_accumulateSamples_standard_iso_tf_frag);
+                #include "Shaders/volume_accumulateSamples_iso_tf_frag.cpp"
+                accumulateSamplesShader = new osg::Shader(osg::Shader::FRAGMENT, volume_accumulateSamples_iso_tf_frag);
             }
-            #endif
 
-
-            // front
-            _stateSetMap[ISO_SHADERS|FRONT_SHADERS|TF_SHADERS] = createStateSet(front_stateset_prototype.get(), front_program_prototype.get(), accumulateSamplesShader.get());
-
-            // back
-            _stateSetMap[ISO_SHADERS|BACK_SHADERS|TF_SHADERS] = createStateSet(back_stateset_prototype.get(), back_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[ISO_SHADERS|CUBE_SHADERS|TF_SHADERS] = createStateSet(cube_stateset_prototype.get(), cube_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[ISO_SHADERS|HULL_SHADERS|TF_SHADERS] = createStateSet(hull_stateset_prototype.get(), hull_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[ISO_SHADERS|CUBE_AND_HULL_SHADERS|TF_SHADERS] = createStateSet(cube_and_hull_stateset_prototype.get(), cube_and_hull_program_prototype.get(), accumulateSamplesShader.get());
         }
     }
 
@@ -608,39 +827,30 @@ void MultipassTechnique::init()
         // MIP_SHADERS without TransferFunction
         {
             osg::ref_ptr<osg::Shader> accumulateSamplesShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_accumulateSamples_mip.frag");
-            #if 0
             if (!accumulateSamplesShader)
             {
-                #include "Shaders/volume_accumulateSamples_mip_frag.cpp";
+                #include "Shaders/volume_accumulateSamples_mip_frag.cpp"
                 accumulateSamplesShader = new osg::Shader(osg::Shader::FRAGMENT, volume_accumulateSamples_mip_frag);
             }
-            #endif
 
-            // front
-            _stateSetMap[MIP_SHADERS|FRONT_SHADERS] = createStateSet(front_stateset_prototype.get(), front_program_prototype.get(), accumulateSamplesShader.get());
-
-            // back
-            _stateSetMap[MIP_SHADERS|BACK_SHADERS] = createStateSet(back_stateset_prototype.get(), back_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[MIP_SHADERS|CUBE_SHADERS] = createStateSet(cube_stateset_prototype.get(), cube_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[MIP_SHADERS|HULL_SHADERS] = createStateSet(hull_stateset_prototype.get(), hull_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[MIP_SHADERS|CUBE_AND_HULL_SHADERS] = createStateSet(cube_and_hull_stateset_prototype.get(), cube_and_hull_program_prototype.get(), accumulateSamplesShader.get());
         }
 
         // MIP_SHADERS with TransferFunction
         if (tf)
         {
             osg::ref_ptr<osg::Shader> accumulateSamplesShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_accumulateSamples_mip_tf.frag");
-            #if 0
             if (!accumulateSamplesShader)
             {
-                #include "Shaders/volume_accumulateSamples_standard_mip_tf_frag.cpp";
-                accumulateSamplesShader = new osg::Shader(osg::Shader::FRAGMENT, volume_accumulateSamples_standard_mip_tf_frag);
+                #include "Shaders/volume_accumulateSamples_mip_tf_frag.cpp"
+                accumulateSamplesShader = new osg::Shader(osg::Shader::FRAGMENT, volume_accumulateSamples_mip_tf_frag);
             }
-            #endif
 
-
-            // front
-            _stateSetMap[MIP_SHADERS|FRONT_SHADERS|TF_SHADERS] = createStateSet(front_stateset_prototype.get(), front_program_prototype.get(), accumulateSamplesShader.get());
-
-            // back
-            _stateSetMap[MIP_SHADERS|BACK_SHADERS|TF_SHADERS] = createStateSet(back_stateset_prototype.get(), back_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[MIP_SHADERS|CUBE_SHADERS|TF_SHADERS] = createStateSet(cube_stateset_prototype.get(), cube_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[MIP_SHADERS|HULL_SHADERS|TF_SHADERS] = createStateSet(hull_stateset_prototype.get(), hull_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[MIP_SHADERS|CUBE_AND_HULL_SHADERS|TF_SHADERS] = createStateSet(cube_and_hull_stateset_prototype.get(), cube_and_hull_program_prototype.get(), accumulateSamplesShader.get());
         }
     }
 
@@ -650,39 +860,30 @@ void MultipassTechnique::init()
         // LIT_SHADERS without TransferFunction
         {
             osg::ref_ptr<osg::Shader> accumulateSamplesShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_accumulateSamples_lit.frag");
-            #if 0
             if (!accumulateSamplesShader)
             {
-                #include "Shaders/volume_accumulateSamples_lit_frag.cpp";
+                #include "Shaders/volume_accumulateSamples_lit_frag.cpp"
                 accumulateSamplesShader = new osg::Shader(osg::Shader::FRAGMENT, volume_accumulateSamples_lit_frag);
             }
-            #endif
 
-            // front
-            _stateSetMap[LIT_SHADERS|FRONT_SHADERS] = createStateSet(front_stateset_prototype.get(), front_program_prototype.get(), accumulateSamplesShader.get());
-
-            // back
-            _stateSetMap[LIT_SHADERS|BACK_SHADERS] = createStateSet(back_stateset_prototype.get(), back_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[LIT_SHADERS|CUBE_SHADERS] = createStateSet(cube_stateset_prototype.get(), cube_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[LIT_SHADERS|HULL_SHADERS] = createStateSet(hull_stateset_prototype.get(), hull_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[LIT_SHADERS|CUBE_AND_HULL_SHADERS] = createStateSet(cube_and_hull_stateset_prototype.get(), cube_and_hull_program_prototype.get(), accumulateSamplesShader.get());
         }
 
         // MIP_SHADERS with TransferFunction
         if (tf)
         {
             osg::ref_ptr<osg::Shader> accumulateSamplesShader = osgDB::readRefShaderFile(osg::Shader::FRAGMENT, "shaders/volume_accumulateSamples_lit_tf.frag");
-            #if 0
             if (!accumulateSamplesShader)
             {
-                #include "Shaders/volume_accumulateSamples_standard_lit_tf_frag.cpp";
-                accumulateSamplesShader = new osg::Shader(osg::Shader::FRAGMENT, volume_accumulateSamples_standard_lit_tf_frag);
+                #include "Shaders/volume_accumulateSamples_lit_tf_frag.cpp"
+                accumulateSamplesShader = new osg::Shader(osg::Shader::FRAGMENT, volume_accumulateSamples_lit_tf_frag);
             }
-            #endif
 
-
-            // front
-            _stateSetMap[LIT_SHADERS|FRONT_SHADERS|TF_SHADERS] = createStateSet(front_stateset_prototype.get(), front_program_prototype.get(), accumulateSamplesShader.get());
-
-            // back
-            _stateSetMap[LIT_SHADERS|BACK_SHADERS|TF_SHADERS] = createStateSet(back_stateset_prototype.get(), back_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[LIT_SHADERS|CUBE_SHADERS|TF_SHADERS] = createStateSet(cube_stateset_prototype.get(), cube_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[LIT_SHADERS|HULL_SHADERS|TF_SHADERS] = createStateSet(hull_stateset_prototype.get(), hull_program_prototype.get(), accumulateSamplesShader.get());
+            _stateSetMap[LIT_SHADERS|CUBE_AND_HULL_SHADERS|TF_SHADERS] = createStateSet(cube_and_hull_stateset_prototype.get(), cube_and_hull_program_prototype.get(), accumulateSamplesShader.get());
         }
     }
 
@@ -690,65 +891,208 @@ void MultipassTechnique::init()
     if (cpv._sampleRatioWhenMovingProperty.valid())
     {
         _whenMovingStateSet = new osg::StateSet;
-        //_whenMovingStateSet->setTextureAttributeAndModes(volumeTextureUnit, new osg::TexEnvFilter(1.0));
         _whenMovingStateSet->addUniform(cpv._sampleRatioWhenMovingProperty->getUniform(), osg::StateAttribute::OVERRIDE | osg::StateAttribute::ON);
     }
 
 }
 
-void MultipassTechnique::update(osgUtil::UpdateVisitor* /*uv*/)
+void MultipassTechnique::update(osgUtil::UpdateVisitor* uv)
 {
-//    OSG_NOTICE<<"MultipassTechnique:update(osgUtil::UpdateVisitor* nv):"<<std::endl;
+//    OSG_NOTICE<<"MultipassTechnique:update(osgUtil::UpdateVisitor* uv):"<<std::endl;
+    if (getVolumeTile()->getNumChildren()>0)
+    {
+        getVolumeTile()->osg::Group::traverse(*uv);
+    }
+    else
+    {
+        _transform->accept(*uv);
+    }
 }
+
+void MultipassTechnique::backfaceSubgraphCullTraversal(osgUtil::CullVisitor* cv)
+{
+    if (!cv) return;
+
+    cv->pushStateSet(_frontFaceStateSet.get());
+
+    if (getVolumeTile()->getNumChildren()>0)
+    {
+        getVolumeTile()->osg::Group::traverse(*cv);
+    }
+    else
+    {
+        _transform->accept(*cv);
+    }
+
+    cv->popStateSet();
+}
+
+class RTTBackfaceCameraCullCallback : public osg::NodeCallback
+{
+    public:
+
+        RTTBackfaceCameraCullCallback(MultipassTechnique::MultipassTileData* tileData, MultipassTechnique* mt):
+            _tileData(tileData),
+            _mt(mt) {}
+
+        virtual void operator()(osg::Node* node, osg::NodeVisitor* nv)
+        {
+            osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(nv);
+
+            cv->pushProjectionMatrix(_tileData->projectionMatrix.get());
+
+            _mt->backfaceSubgraphCullTraversal(cv);
+
+            cv->popProjectionMatrix();
+        }
+
+    protected:
+
+        virtual ~RTTBackfaceCameraCullCallback() {}
+
+        osg::observer_ptr<osgVolume::MultipassTechnique::MultipassTileData> _tileData;
+        osg::observer_ptr<osgVolume::MultipassTechnique> _mt;
+};
+
+class ShadingModelVisitor : public osgVolume::PropertyVisitor
+{
+    public:
+
+        ShadingModelVisitor():
+            PropertyVisitor(true),
+            _shadingModel(VolumeSettings::Standard),
+            _usesTransferFunction(false) {}
+
+        virtual void apply(IsoSurfaceProperty& iso) { _shadingModel = VolumeSettings::Isosurface; }
+        virtual void apply(MaximumIntensityProjectionProperty& mip) { _shadingModel = VolumeSettings::MaximumIntensityProjection; }
+        virtual void apply(LightingProperty& lp) { _shadingModel = VolumeSettings::Light; }
+        virtual void apply(TransferFunctionProperty& tf) { _usesTransferFunction = true; }
+        virtual void apply(VolumeSettings& vs) { _shadingModel = vs.getShadingModel(); }
+
+        VolumeSettings::ShadingModel    _shadingModel;
+        bool                            _usesTransferFunction;
+
+};
 
 void MultipassTechnique::cull(osgUtil::CullVisitor* cv)
 {
     std::string traversalPass;
-    bool postTraversal = cv->getUserValue("VolumeSceneTraversal", traversalPass) && traversalPass=="Post";
+    bool rttTraversal = cv->getUserValue("VolumeSceneTraversal", traversalPass) && traversalPass=="RenderToTexture";
 
     // OSG_NOTICE<<"MultipassTechnique::cull()  traversalPass="<<traversalPass<<std::endl;
+    osgVolume::VolumeScene* vs = 0;
+    osg::NodePath& nodePath = cv->getNodePath();
+    for(osg::NodePath::reverse_iterator itr = nodePath.rbegin();
+        (itr != nodePath.rend()) && (vs == 0);
+        ++itr)
+    {
+        vs = dynamic_cast<osgVolume::VolumeScene*>(*itr);
+    }
 
-    if (postTraversal)
+    RenderingMode renderingMode = computeRenderingMode();
+
+    if (rttTraversal)
+    {
+        if (vs)
+        {
+            MultipassTileData* tileData = dynamic_cast<MultipassTileData*>(vs->tileVisited(cv, getVolumeTile()));
+            if (tileData)
+            {
+                switch(renderingMode)
+                {
+                    case(CUBE):
+                    {
+                        // no work required to pre-render
+                        break;
+                    }
+                    case(HULL):
+                    {
+                        if (tileData->frontFaceRttCamera.valid())  tileData->frontFaceRttCamera->accept(*cv);
+                        break;
+                    }
+                    case(CUBE_AND_HULL):
+                    {
+                        // OSG_NOTICE<<"Doing pre-rendering"<<std::endl;
+                        if (tileData->frontFaceRttCamera.valid())
+                        {
+                            // OSG_NOTICE<<"   frontFaceRttCamera"<<std::endl;
+                            tileData->frontFaceRttCamera->accept(*cv);
+                        }
+                        if (tileData->backFaceRttCamera.valid())
+                        {
+                            // OSG_NOTICE<<"   backFaceRttCamera"<<std::endl;
+                            tileData->backFaceRttCamera->accept(*cv);
+                        }
+                    }
+                }
+            }
+
+            osg::BoundingBox bb;
+            if (_transform.valid()) bb.expandBy(_transform->getBound());
+            if (getVolumeTile()->getNumChildren()>0) bb.expandBy(getVolumeTile()->getBound());
+            cv->updateCalculatedNearFar(*(cv->getModelViewMatrix()),bb);
+        }
+    }
+    else
     {
 
         int shaderMask = 0;
         if (_volumeTile->getLayer()->getProperty())
         {
-            CollectPropertiesVisitor cpv;
-            _volumeTile->getLayer()->getProperty()->accept(cpv);
+            ShadingModelVisitor smv;
 
-            if (cpv._tfProperty.valid())
+            _volumeTile->getLayer()->getProperty()->accept(smv);
+
+            if (smv._usesTransferFunction)
             {
                 shaderMask |= TF_SHADERS;
             }
 
-            if (cpv._isoProperty.valid())
+            switch(smv._shadingModel)
             {
-                shaderMask |= ISO_SHADERS;
-            }
-            else if (cpv._mipProperty.valid())
-            {
-                shaderMask |= MIP_SHADERS;
-            }
-            else if (cpv._lightingProperty.valid())
-            {
-                shaderMask |= LIT_SHADERS;
-            }
-            else
-            {
-                shaderMask |= STANDARD_SHADERS;
+                case(VolumeSettings::Isosurface):                       shaderMask |= ISO_SHADERS; break;
+                case(VolumeSettings::MaximumIntensityProjection):       shaderMask |= MIP_SHADERS; break;
+                case(VolumeSettings::Light):                            shaderMask |= LIT_SHADERS; break;
+                default:                                                shaderMask |= STANDARD_SHADERS; break;
             }
         }
 
-        int shaderMaskFront = shaderMask | FRONT_SHADERS;
-        int shaderMaskBack = shaderMask | BACK_SHADERS;
+        switch(renderingMode)
+        {
+            case(CUBE): shaderMask |= CUBE_SHADERS; break;
+            case(HULL): shaderMask |= HULL_SHADERS; break;
+            case(CUBE_AND_HULL): shaderMask |= CUBE_AND_HULL_SHADERS; break;
+        }
 
-        // OSG_NOTICE<<"shaderMaskFront "<<shaderMaskFront<<std::endl;
-        // OSG_NOTICE<<"shaderMaskBack  "<<shaderMaskBack<<std::endl;
+        if (vs)
+        {
+            MultipassTileData* tileData = dynamic_cast<MultipassTileData*>(vs->getTileData(cv, getVolumeTile()));
+            if (tileData)
+            {
+                Locator* tileLocator = _volumeTile->getLocator();
+                osg::Matrixd tileToEye = tileLocator->getTransform() * (*(cv->getModelViewMatrix()));
+                osg::Matrixd eyeToTile;
+                eyeToTile.invert(tileToEye);
+
+                tileData->eyeToTileUniform->set(osg::Matrixf(eyeToTile));
+
+                Locator* layerLocator = _volumeTile->getLayer()->getLocator();
+                if (tileLocator==layerLocator)
+                {
+                    tileData->tileToImageUniform->set(osg::Matrixf::identity());
+                }
+                else
+                {
+                    osg::Matrixd tileToImage(tileLocator->getTransform() * osg::Matrixd::inverse(layerLocator->getTransform()));
+                    tileData->tileToImageUniform->set(osg::Matrixf(tileToImage));
+                }
 
 
-        osg::ref_ptr<osg::StateSet> front_stateset = _stateSetMap[shaderMaskFront];
-        osg::ref_ptr<osg::StateSet> back_stateset = _stateSetMap[shaderMaskBack];
+                // OSG_NOTICE<<"Updating texgen"<<std::endl;
+            }
+        }
+
+
         osg::ref_ptr<osg::StateSet> moving_stateset = (_whenMovingStateSet.valid() && isMoving(cv)) ? _whenMovingStateSet : 0;
 
         if (moving_stateset.valid())
@@ -757,41 +1101,43 @@ void MultipassTechnique::cull(osgUtil::CullVisitor* cv)
             cv->pushStateSet(moving_stateset.get());
         }
 
-        if (front_stateset.valid())
+        osg::ref_ptr<osg::StateSet> program_stateset = _stateSetMap[shaderMask];
+        if (program_stateset.valid())
         {
-            // OSG_NOTICE<<"Have front stateset"<<std::endl;
-            cv->pushStateSet(front_stateset.get());
-            _transform->accept(*cv);
+            // OSG_NOTICE<<"Have program_stateset OK."<<std::endl;
+            cv->pushStateSet(program_stateset.get());
+            cv->pushStateSet(_volumeRenderStateSet.get());
+
+            switch(renderingMode)
+            {
+                case(CUBE):
+                    // OSG_NOTICE<<"Travering Transform for CUBE rendering"<<std::endl;
+                    _transform->accept(*cv);
+                     break;
+                case(HULL):
+                    // OSG_NOTICE<<"Travering children for HULL rendering"<<std::endl;
+                    getVolumeTile()->osg::Group::traverse(*cv);
+                    break;
+                case(CUBE_AND_HULL):
+                    // OSG_NOTICE<<"Travering Transform for CUBE_AND_HULL rendering"<<std::endl;
+                    _transform->accept(*cv);
+                    //getVolumeTile()->osg::Group::traverse(*cv);
+                    break;
+            }
+
             cv->popStateSet();
+            cv->popStateSet();
+        }
+        else
+        {
+            OSG_NOTICE<<"Warning: No program available for required shader mask "<<shaderMask<<std::endl;
         }
 
-        if (back_stateset.valid())
-        {
-            // OSG_NOTICE<<"Have back stateset"<<std::endl;
-            cv->pushStateSet(back_stateset.get());
-            _transform->accept(*cv);
-            cv->popStateSet();
-        }
 
         if (moving_stateset.valid())
         {
             // OSG_NOTICE<<"Using MovingStateSet"<<std::endl;
             cv->popStateSet();
-        }
-    }
-    else
-    {
-        osg::NodePath& nodePath = cv->getNodePath();
-        for(osg::NodePath::reverse_iterator itr = nodePath.rbegin();
-            itr != nodePath.rend();
-            ++itr)
-        {
-            osgVolume::VolumeScene* vs = dynamic_cast<osgVolume::VolumeScene*>(*itr);
-            if (vs)
-            {
-                vs->tileVisited(cv, getVolumeTile());
-                break;
-            }
         }
     }
 }

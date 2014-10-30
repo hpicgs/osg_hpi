@@ -120,12 +120,12 @@ void TransferFunctionWidget::scaleVisibleRange(float center, float delta)
 }
 
 
-void TransferFunctionWidget::traverse(osg::NodeVisitor& nv)
+void TransferFunctionWidget::traverseImplementation(osg::NodeVisitor& nv)
 {
-    Widget::traverse(nv);
+    Widget::traverseImplementation(nv);
 }
 
-bool TransferFunctionWidget::handle(osgGA::EventVisitor* ev, osgGA::Event* event)
+bool TransferFunctionWidget::handleImplementation(osgGA::EventVisitor* ev, osgGA::Event* event)
 {
     osgGA::GUIEventAdapter* ea = event->asGUIEventAdapter();
     if (!ea) return false;
@@ -137,7 +137,7 @@ bool TransferFunctionWidget::handle(osgGA::EventVisitor* ev, osgGA::Event* event
             _startedDrag = false;
             if (ea->getButtonMask()==osgGA::GUIEventAdapter::LEFT_MOUSE_BUTTON)
             {
-                osg::Vec3 position;
+                osg::Vec3d position;
                 if (computePositionInLocalCoordinates(ev, ea, position))
                 {
                     _startedDrag = true;
@@ -153,7 +153,7 @@ bool TransferFunctionWidget::handle(osgGA::EventVisitor* ev, osgGA::Event* event
             // OSG_NOTICE<<"Dragged "<<std::endl;
             if (_startedDrag)
             {
-                osg::Vec3 position;
+                osg::Vec3d position;
                 if (computePositionInLocalCoordinates(ev, ea, position))
                 {
                     float delta = -(position.x()-_previousDragPosition);
@@ -166,7 +166,7 @@ bool TransferFunctionWidget::handle(osgGA::EventVisitor* ev, osgGA::Event* event
             break;
         case(osgGA::GUIEventAdapter::SCROLL):
         {
-            osg::Vec3 position;
+            osg::Vec3d position;
             if (computePositionInLocalCoordinates(ev, ea, position))
             {
                 float translation = 0.0;
@@ -222,7 +222,7 @@ bool TransferFunctionWidget::handle(osgGA::EventVisitor* ev, osgGA::Event* event
     return false;
 }
 
-void TransferFunctionWidget::createGraphics()
+void TransferFunctionWidget::createGraphicsImplementation()
 {
 //    OSG_NOTICE<<"Create graphics"<<std::endl;
 
@@ -269,7 +269,7 @@ void TransferFunctionWidget::createGraphics()
             stateset->setMode(GL_BLEND, osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
 
             osg::ref_ptr<osg::AlphaFunc> alphaFunc = new osg::AlphaFunc(osg::AlphaFunc::GREATER, 0.0f);
-            stateset->setAttributeAndModes(alphaFunc, osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
+            stateset->setAttributeAndModes(alphaFunc.get(), osg::StateAttribute::ON | osg::StateAttribute::PROTECTED);
 
             osg::ref_ptr<osg::Image> image = new osg::Image;
             image->allocateImage(1,1,1, GL_RGBA, GL_UNSIGNED_BYTE);
@@ -390,5 +390,5 @@ void TransferFunctionWidget::createGraphics()
     _geometry->dirtyBound();
 
     // make sure the general widget geometry/state is created and _graphicsInitialized reset to false
-    Widget::createGraphics();
+    Widget::createGraphicsImplementation();
 }

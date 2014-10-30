@@ -39,6 +39,7 @@ RayIntersector::RayIntersector(CoordinateFrame cf, RayIntersector* parent,
 
 RayIntersector::RayIntersector(const Vec3d& start, const Vec3d& direction) :
     Intersector(),
+    _parent(0),
     _start(start),
     _direction(direction)
 {
@@ -107,7 +108,7 @@ void RayIntersector::intersect(IntersectionVisitor& iv, Drawable* drawable)
 
     // clip ray to finite line segment
     Vec3d s(_start), e;
-    if (!intersectAndClip(s, _direction, e, drawable->getBound())) return;
+    if (!intersectAndClip(s, _direction, e, drawable->getBoundingBox())) return;
 
     // dummy traversal
     if (iv.getDoDummyTraversal()) return;

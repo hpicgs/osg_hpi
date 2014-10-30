@@ -601,6 +601,8 @@ void CompositeViewer::realize()
     {
         osg::GraphicsContext* gc = *citr;
 
+        if (ds->getSyncSwapBuffers()) gc->setSwapCallback(new osg::SyncSwapBuffersCallback);
+
         // set the pool sizes, 0 the default will result in no GL object pools.
         gc->getState()->setMaxTexturePoolSize(maxTexturePoolSize);
         gc->getState()->setMaxBufferObjectPoolSize(maxBufferObjectPoolSize);
@@ -837,7 +839,6 @@ void CompositeViewer::generateSlavePointerData(osg::Camera* camera, osgGA::GUIEv
     }
 }
 
-
 void CompositeViewer::generatePointerData(osgGA::GUIEventAdapter& event)
 {
     osgViewer::GraphicsWindow* gw = dynamic_cast<osgViewer::GraphicsWindow*>(event.getGraphicsContext());
@@ -851,6 +852,9 @@ void CompositeViewer::generatePointerData(osgGA::GUIEventAdapter& event)
 
     event.addPointerData(new osgGA::PointerData(gw, x, 0, gw->getTraits()->width,
                                                     y, 0, gw->getTraits()->height));
+
+    typedef std::vector<osg::Camera*> CameraVector;
+    CameraVector activeCameras;
 
     osg::GraphicsContext::Cameras& cameras = gw->getCameras();
     for(osg::GraphicsContext::Cameras::iterator citr = cameras.begin();
@@ -866,18 +870,29 @@ void CompositeViewer::generatePointerData(osgGA::GUIEventAdapter& event)
                 x >= viewport->x() && y >= viewport->y() &&
                 x <= (viewport->x()+viewport->width()) && y <= (viewport->y()+viewport->height()) )
             {
-                event.addPointerData(new osgGA::PointerData(camera, (x-viewport->x())/viewport->width()*2.0f-1.0f, -1.0, 1.0,
-                                                                    (y-viewport->y())/viewport->height()*2.0f-1.0f, -1.0, 1.0));
-
-                osgViewer::View* view = dynamic_cast<osgViewer::View*>(camera->getView());
-                osg::Camera* view_masterCamera = view ? view->getCamera() : 0;
-
-                // if camera isn't the master it must be a slave and could need reprojecting.
-                if (view && camera!=view_masterCamera)
-                {
-                    generateSlavePointerData(camera, event);
-                }
+                activeCameras.push_back(camera);
             }
+        }
+    }
+
+    std::sort(activeCameras.begin(), activeCameras.end(), osg::CameraRenderOrderSortOp());
+
+    osg::Camera* camera = activeCameras.empty() ? 0 : activeCameras.back();
+
+    if (camera)
+    {
+        osg::Viewport* viewport = camera ? camera->getViewport() : 0;
+
+        event.addPointerData(new osgGA::PointerData(camera, (x-viewport->x())/viewport->width()*2.0f-1.0f, -1.0, 1.0,
+                                                            (y-viewport->y())/viewport->height()*2.0f-1.0f, -1.0, 1.0));
+
+        osgViewer::View* view = dynamic_cast<osgViewer::View*>(camera->getView());
+        osg::Camera* view_masterCamera = view ? view->getCamera() : 0;
+
+        // if camera isn't the master it must be a slave and could need reprojecting.
+        if (view && camera!=view_masterCamera)
+        {
+            generateSlavePointerData(camera, event);
         }
     }
 }
@@ -1008,11 +1023,7 @@ void CompositeViewer::eventTraversal()
                 event->setInputRange(pd->xMin, pd->yMin, pd->xMax, pd->yMax);
                 event->setMouseYOrientation(osgGA::GUIEventAdapter::Y_INCREASING_UPWARDS);
 #else
-                if (event->getMouseYOrientation()!=osgGA::GUIEventAdapter::Y_INCREASING_UPWARDS)
-                {
-                    event->setY((event->getYmax()-event->getY())+event->getYmin());
-                    event->setMouseYOrientation(osgGA::GUIEventAdapter::Y_INCREASING_UPWARDS);
-                }
+                event->setMouseYOrientationAndUpdateCoords(osgGA::GUIEventAdapter::Y_INCREASING_UPWARDS);
 #endif
 
                 _previousEvent = event;
@@ -1124,6 +1135,10 @@ void CompositeViewer::eventTraversal()
             {
                 osgGA::GUIEventAdapter* event = (*itr)->asGUIEventAdapter();
                 if (!event) continue;
+
+                // ignore event if it's already been handled.
+                if (event->getHandled()) continue;
+
                 switch(event->getEventType())
                 {
                     case(osgGA::GUIEventAdapter::KEYUP):

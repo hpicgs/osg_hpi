@@ -266,9 +266,14 @@ void Viewer::take(osg::View& rhs)
         _startRenderingBarrier = rhs_viewer->_startRenderingBarrier;
         _endRenderingDispatchBarrier = rhs_viewer->_endRenderingDispatchBarrier;
         _endDynamicDrawBlock = rhs_viewer->_endDynamicDrawBlock;
+
         _eventVisitor = rhs_viewer->_eventVisitor;
+        _eventVisitor->setActionAdapter(this);
+        _eventVisitor->setFrameStamp(_frameStamp.get());
+
         _updateOperations = rhs_viewer->_updateOperations;
         _updateVisitor = rhs_viewer->_updateVisitor;
+
         _realizeOperation = rhs_viewer->_realizeOperation;
         _currentContext = rhs_viewer->_currentContext;
 
@@ -283,6 +288,7 @@ void Viewer::take(osg::View& rhs)
         rhs_viewer->_updateVisitor = 0;
         rhs_viewer->_realizeOperation = 0;
         rhs_viewer->_currentContext = 0;
+
     }
 #endif
 }
@@ -538,6 +544,8 @@ void Viewer::realize()
     {
         osg::GraphicsContext* gc = *citr;
 
+        if (ds->getSyncSwapBuffers()) gc->setSwapCallback(new osg::SyncSwapBuffersCallback);
+
         // set the pool sizes, 0 the default will result in no GL object pools.
         gc->getState()->setMaxTexturePoolSize(maxTexturePoolSize);
         gc->getState()->setMaxBufferObjectPoolSize(maxBufferObjectPoolSize);
@@ -778,7 +786,9 @@ void Viewer::generatePointerData(osgGA::GUIEventAdapter& event)
     event.addPointerData(new osgGA::PointerData(gw, x, 0, gw->getTraits()->width,
                                                     y, 0, gw->getTraits()->height));
 
-    // new code for populating the PointerData
+    typedef std::vector<osg::Camera*> CameraVector;
+    CameraVector activeCameras;
+
     osgViewer::View* this_view = dynamic_cast<osgViewer::View*>(this);
     osg::GraphicsContext::Cameras& cameras = gw->getCameras();
     for(osg::GraphicsContext::Cameras::iterator citr = cameras.begin();
@@ -795,15 +805,26 @@ void Viewer::generatePointerData(osgGA::GUIEventAdapter& event)
                 x >= viewport->x() && y >= viewport->y() &&
                 x <= (viewport->x()+viewport->width()) && y <= (viewport->y()+viewport->height()) )
             {
-                event.addPointerData(new osgGA::PointerData(camera, (x-viewport->x())/viewport->width()*2.0f-1.0f, -1.0, 1.0,
-                                                                    (y-viewport->y())/viewport->height()*2.0f-1.0f, -1.0, 1.0));
-
-                // if camera isn't the master it must be a slave and could need reprojecting.
-                if (camera!=getCamera())
-                {
-                    generateSlavePointerData(camera, event);
-                }
+                activeCameras.push_back(camera);
             }
+        }
+    }
+
+    std::sort(activeCameras.begin(), activeCameras.end(), osg::CameraRenderOrderSortOp());
+
+    osg::Camera* camera = activeCameras.empty() ? 0 : activeCameras.back();
+
+    if (camera)
+    {
+        osg::Viewport* viewport = camera ? camera->getViewport() : 0;
+
+        event.addPointerData(new osgGA::PointerData(camera, (x-viewport->x())/viewport->width()*2.0f-1.0f, -1.0, 1.0,
+                                                            (y-viewport->y())/viewport->height()*2.0f-1.0f, -1.0, 1.0));
+
+        // if camera isn't the master it must be a slave and could need reprojecting.
+        if (camera!=getCamera())
+        {
+            generateSlavePointerData(camera, event);
         }
     }
 }
@@ -923,11 +944,7 @@ void Viewer::eventTraversal()
                         event->setInputRange(pd->xMin, pd->yMin, pd->xMax, pd->yMax);
                         event->setMouseYOrientation(osgGA::GUIEventAdapter::Y_INCREASING_UPWARDS);
 #else
-                        if (event->getMouseYOrientation()!=osgGA::GUIEventAdapter::Y_INCREASING_UPWARDS)
-                        {
-                            event->setY((event->getYmax()-event->getY())+event->getYmin());
-                            event->setMouseYOrientation(osgGA::GUIEventAdapter::Y_INCREASING_UPWARDS);
-                        }
+                        event->setMouseYOrientationAndUpdateCoords(osgGA::GUIEventAdapter::Y_INCREASING_UPWARDS);
 #endif
 
                         eventState->copyPointerDataFrom(*event);
@@ -987,6 +1004,10 @@ void Viewer::eventTraversal()
         {
             osgGA::GUIEventAdapter* event = (*itr)->asGUIEventAdapter();
             if (!event) continue;
+
+            // ignore event if it's already been handled.
+            if (event->getHandled()) continue;
+
             switch(event->getEventType())
             {
                 case(osgGA::GUIEventAdapter::KEYUP):

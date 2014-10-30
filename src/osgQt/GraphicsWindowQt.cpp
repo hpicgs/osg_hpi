@@ -16,6 +16,12 @@
 #include <osgViewer/ViewerBase>
 #include <QInputEvent>
 
+#if (QT_VERSION>=QT_VERSION_CHECK(4, 6, 0))
+# define USE_GESTURES
+# include <QGestureEvent>
+# include <QGesture>
+#endif
+
 using namespace osgQt;
 
 
@@ -126,27 +132,39 @@ void timerEvent( QTimerEvent *event );
 
 static HeartBeat heartBeat;
 
+#if (QT_VERSION < QT_VERSION_CHECK(5, 2, 0))
+    #define GETDEVICEPIXELRATIO() 1.0
+#else
+    #define GETDEVICEPIXELRATIO() devicePixelRatio()
+#endif
+
 GLWidget::GLWidget( QWidget* parent, const QGLWidget* shareWidget, Qt::WindowFlags f, bool forwardKeyEvents )
 : QGLWidget(parent, shareWidget, f),
 _gw( NULL ),
-_forwardKeyEvents( forwardKeyEvents )
+_forwardKeyEvents( forwardKeyEvents ),
+_touchEventsEnabled( false )
 {
+    _devicePixelRatio = GETDEVICEPIXELRATIO();
 }
 
 GLWidget::GLWidget( QGLContext* context, QWidget* parent, const QGLWidget* shareWidget, Qt::WindowFlags f,
                     bool forwardKeyEvents )
 : QGLWidget(context, parent, shareWidget, f),
 _gw( NULL ),
-_forwardKeyEvents( forwardKeyEvents )
+_forwardKeyEvents( forwardKeyEvents ),
+_touchEventsEnabled( false )
 {
+    _devicePixelRatio = GETDEVICEPIXELRATIO();
 }
 
 GLWidget::GLWidget( const QGLFormat& format, QWidget* parent, const QGLWidget* shareWidget, Qt::WindowFlags f,
                     bool forwardKeyEvents )
 : QGLWidget(format, parent, shareWidget, f),
 _gw( NULL ),
-_forwardKeyEvents( forwardKeyEvents )
+_forwardKeyEvents( forwardKeyEvents ),
+_touchEventsEnabled( false )
 {
+    _devicePixelRatio = GETDEVICEPIXELRATIO();
 }
 
 GLWidget::~GLWidget()
@@ -158,6 +176,25 @@ GLWidget::~GLWidget()
         _gw->_widget = NULL;
         _gw = NULL;
     }
+}
+
+void GLWidget::setTouchEventsEnabled(bool e)
+{
+#ifdef USE_GESTURES
+    if (e==_touchEventsEnabled)
+        return;
+
+    _touchEventsEnabled = e;
+
+    if (_touchEventsEnabled)
+    {
+        grabGesture(Qt::PinchGesture);
+    }
+    else
+    {
+        ungrabGesture(Qt::PinchGesture);
+    }
+#endif
 }
 
 void GLWidget::processDeferredEvents()
@@ -179,6 +216,10 @@ void GLWidget::processDeferredEvents()
 
 bool GLWidget::event( QEvent* event )
 {
+#ifdef USE_GESTURES
+    if ( event->type()==QEvent::Gesture )
+        return gestureEvent(static_cast<QGestureEvent*>(event));
+#endif
 
     // QEvent::Hide
     //
@@ -238,16 +279,21 @@ void GLWidget::setKeyboardModifiers( QInputEvent* event )
 void GLWidget::resizeEvent( QResizeEvent* event )
 {
     const QSize& size = event->size();
-    _gw->resized( x(), y(), size.width(), size.height() );
-    _gw->getEventQueue()->windowResize( x(), y(), size.width(), size.height() );
+
+    int scaled_width = static_cast<int>(size.width()*_devicePixelRatio);
+    int scaled_height = static_cast<int>(size.height()*_devicePixelRatio);
+    _gw->resized( x(), y(), scaled_width,  scaled_height);
+    _gw->getEventQueue()->windowResize( x(), y(), scaled_width, scaled_height );
     _gw->requestRedraw();
 }
 
 void GLWidget::moveEvent( QMoveEvent* event )
 {
     const QPoint& pos = event->pos();
-    _gw->resized( pos.x(), pos.y(), width(), height() );
-    _gw->getEventQueue()->windowResize( pos.x(), pos.y(), width(), height() );
+    int scaled_width = static_cast<int>(width()*_devicePixelRatio);
+    int scaled_height = static_cast<int>(height()*_devicePixelRatio);
+    _gw->resized( pos.x(), pos.y(), scaled_width,  scaled_height );
+    _gw->getEventQueue()->windowResize( pos.x(), pos.y(), scaled_width,  scaled_height );
 }
 
 void GLWidget::glDraw()
@@ -298,7 +344,7 @@ void GLWidget::mousePressEvent( QMouseEvent* event )
         default: button = 0; break;
     }
     setKeyboardModifiers( event );
-    _gw->getEventQueue()->mouseButtonPress( event->x(), event->y(), button );
+    _gw->getEventQueue()->mouseButtonPress( event->x()*_devicePixelRatio, event->y()*_devicePixelRatio, button );
 }
 
 void GLWidget::mouseReleaseEvent( QMouseEvent* event )
@@ -313,7 +359,7 @@ void GLWidget::mouseReleaseEvent( QMouseEvent* event )
         default: button = 0; break;
     }
     setKeyboardModifiers( event );
-    _gw->getEventQueue()->mouseButtonRelease( event->x(), event->y(), button );
+    _gw->getEventQueue()->mouseButtonRelease( event->x()*_devicePixelRatio, event->y()*_devicePixelRatio, button );
 }
 
 void GLWidget::mouseDoubleClickEvent( QMouseEvent* event )
@@ -328,13 +374,13 @@ void GLWidget::mouseDoubleClickEvent( QMouseEvent* event )
         default: button = 0; break;
     }
     setKeyboardModifiers( event );
-    _gw->getEventQueue()->mouseDoubleButtonPress( event->x(), event->y(), button );
+    _gw->getEventQueue()->mouseDoubleButtonPress( event->x()*_devicePixelRatio, event->y()*_devicePixelRatio, button );
 }
 
 void GLWidget::mouseMoveEvent( QMouseEvent* event )
 {
     setKeyboardModifiers( event );
-    _gw->getEventQueue()->mouseMotion( event->x(), event->y() );
+    _gw->getEventQueue()->mouseMotion( event->x()*_devicePixelRatio, event->y()*_devicePixelRatio );
 }
 
 void GLWidget::wheelEvent( QWheelEvent* event )
@@ -344,6 +390,85 @@ void GLWidget::wheelEvent( QWheelEvent* event )
         event->orientation() == Qt::Vertical ?
             (event->delta()>0 ? osgGA::GUIEventAdapter::SCROLL_UP : osgGA::GUIEventAdapter::SCROLL_DOWN) :
             (event->delta()>0 ? osgGA::GUIEventAdapter::SCROLL_LEFT : osgGA::GUIEventAdapter::SCROLL_RIGHT) );
+}
+
+#ifdef USE_GESTURES
+static osgGA::GUIEventAdapter::TouchPhase translateQtGestureState( Qt::GestureState state )
+{
+    osgGA::GUIEventAdapter::TouchPhase touchPhase;
+    switch ( state )
+    {
+        case Qt::GestureStarted:
+            touchPhase = osgGA::GUIEventAdapter::TOUCH_BEGAN;
+            break;
+        case Qt::GestureUpdated:
+            touchPhase = osgGA::GUIEventAdapter::TOUCH_MOVED;
+            break;
+        case Qt::GestureFinished:
+        case Qt::GestureCanceled:
+            touchPhase = osgGA::GUIEventAdapter::TOUCH_ENDED;
+            break;
+        default:
+            touchPhase = osgGA::GUIEventAdapter::TOUCH_UNKNOWN;
+    };
+
+    return touchPhase;
+}
+#endif
+
+
+bool GLWidget::gestureEvent( QGestureEvent* qevent )
+{
+#ifndef USE_GESTURES
+    return false;
+#else
+
+    bool accept = false;
+
+    if ( QPinchGesture* pinch = static_cast<QPinchGesture *>(qevent->gesture(Qt::PinchGesture) ) )
+    {
+    const QPointF qcenterf = pinch->centerPoint();
+    const float angle = pinch->totalRotationAngle();
+    const float scale = pinch->totalScaleFactor();
+
+    const QPoint pinchCenterQt = mapFromGlobal(qcenterf.toPoint());
+    const osg::Vec2 pinchCenter( pinchCenterQt.x(), pinchCenterQt.y() );
+
+        //We don't have absolute positions of the two touches, only a scale and rotation
+        //Hence we create pseudo-coordinates which are reasonable, and centered around the
+        //real position
+        const float radius = (width()+height())/4;
+        const osg::Vec2 vector( scale*cos(angle)*radius, scale*sin(angle)*radius);
+        const osg::Vec2 p0 = pinchCenter+vector;
+        const osg::Vec2 p1 = pinchCenter-vector;
+
+        osg::ref_ptr<osgGA::GUIEventAdapter> event = 0;
+        const osgGA::GUIEventAdapter::TouchPhase touchPhase = translateQtGestureState( pinch->state() );
+        if ( touchPhase==osgGA::GUIEventAdapter::TOUCH_BEGAN )
+        {
+            event = _gw->getEventQueue()->touchBegan(0 , touchPhase, p0[0], p0[1] );
+        }
+        else if ( touchPhase==osgGA::GUIEventAdapter::TOUCH_MOVED )
+        {
+            event = _gw->getEventQueue()->touchMoved( 0, touchPhase, p0[0], p0[1] );
+        }
+        else
+        {
+            event = _gw->getEventQueue()->touchEnded( 0, touchPhase, p0[0], p0[1], 1 );
+        }
+
+        if ( event )
+        {
+            event->addTouchPoint( 1, touchPhase, p1[0], p1[1] );
+            accept = true;
+        }
+    }
+
+    if ( accept )
+        qevent->accept();
+
+    return accept;
+#endif
 }
 
 

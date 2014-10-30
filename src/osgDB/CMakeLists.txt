@@ -52,6 +52,7 @@ SET(TARGET_H
     ${HEADER_PATH}/Archive
     ${HEADER_PATH}/AuthenticationMap
     ${HEADER_PATH}/Callbacks
+    ${HEADER_PATH}/ClassInterface
     ${HEADER_PATH}/ConvertUTF
     ${HEADER_PATH}/DatabasePager
     ${HEADER_PATH}/DatabaseRevisions
@@ -69,7 +70,6 @@ SET(TARGET_H
     ${HEADER_PATH}/Input
     ${HEADER_PATH}/Output
     ${HEADER_PATH}/Options
-    ${HEADER_PATH}/PropertyInterface
     ${HEADER_PATH}/ParameterOutput
     ${HEADER_PATH}/PluginQuery
     ${HEADER_PATH}/ReaderWriter
@@ -89,6 +89,7 @@ SET(TARGET_SRC
     Archive.cpp
     AuthenticationMap.cpp
     Callbacks.cpp
+    ClassInterface.cpp
     ConvertUTF.cpp
     DatabasePager.cpp
     DatabaseRevisions.cpp
@@ -109,7 +110,6 @@ SET(TARGET_SRC
     Output.cpp
     Options.cpp
     PluginQuery.cpp
-    PropertyInterface.cpp
     ReaderWriter.cpp
     ReadFile.cpp
     Registry.cpp
@@ -124,7 +124,7 @@ SET(TARGET_SRC
 IF(APPLE AND NOT ANDROID)
     IF(NOT OSG_BUILD_PLATFORM_IPHONE AND NOT OSG_BUILD_PLATFORM_IPHONE_SIMULATOR)
         # Needs CoreFoundation calls and a Carbon function
-        SET(OSGDB_PLATFORM_SPECIFIC_LIBRARIES ${CARBON_LIBRARY})
+        SET(OSGDB_PLATFORM_SPECIFIC_LIBRARIES ${CARBON_LIBRARY} ${COCOA_LIBRARY})
     ENDIF()
 
     IF(OSG_DEFAULT_IMAGE_PLUGIN_FOR_OSX STREQUAL "quicktime")

@@ -37,6 +37,7 @@ SET(TARGET_H
     ${HEADER_PATH}/buffered_value
     ${HEADER_PATH}/BufferIndexBinding
     ${HEADER_PATH}/BufferObject
+    ${HEADER_PATH}/Callback
     ${HEADER_PATH}/Camera
     ${HEADER_PATH}/CameraView
     ${HEADER_PATH}/ClampColor
@@ -71,7 +72,6 @@ SET(TARGET_H
     ${HEADER_PATH}/FrontFace
     ${HEADER_PATH}/Geode
     ${HEADER_PATH}/Geometry
-    ${HEADER_PATH}/GL
     ${HEADER_PATH}/GL2Extensions
     ${HEADER_PATH}/GLExtensions
     ${HEADER_PATH}/GLBeginEndAdapter
@@ -210,6 +210,7 @@ SET(TARGET_H
     ${HEADER_PATH}/View
     ${HEADER_PATH}/Viewport
     ${OPENSCENEGRAPH_CONFIG_HEADER}
+    ${OPENSCENEGRAPH_OPENGL_HEADER}
 )
 
 #ADD_LIBRARY(${LIB_NAME}
@@ -230,6 +231,7 @@ SET(TARGET_SRC
     BlendFunc.cpp
     BufferIndexBinding.cpp
     BufferObject.cpp
+    Callback.cpp
     Camera.cpp
     CameraView.cpp
     ClampColor.cpp
@@ -296,7 +298,6 @@ SET(TARGET_SRC
     #    Matrix_implementation.cpp
     MatrixTransform.cpp
     Multisample.cpp
-    NodeCallback.cpp
     Node.cpp
     NodeTrackerCallback.cpp
     NodeVisitor.cpp

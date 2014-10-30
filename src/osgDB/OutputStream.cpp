@@ -12,7 +12,6 @@
 */
 // Written by Wang Rui, (C) 2010
 
-#include <osg/Version>
 #include <osg/Notify>
 #include <osgDB/FileUtils>
 #include <osgDB/WriteFile>
@@ -159,6 +158,18 @@ OutputStream& OutputStream::operator<<( const osg::Quat& q )
 OutputStream& OutputStream::operator<<( const osg::Plane& p )
 { *this << (double)p[0] << (double)p[1] << (double)p[2] << (double)p[3]; return *this; }
 
+
+OutputStream& OutputStream::operator<<( const osg::BoundingBoxf& bb)
+{ *this << bb.xMin() << bb.yMin() << bb.zMin() << bb.xMax() << bb.yMax() << bb.zMax(); return *this; }
+
+OutputStream& OutputStream::operator<<( const osg::BoundingBoxd& bb)
+{ *this << bb.xMin() << bb.yMin() << bb.zMin() << bb.xMax() << bb.yMax() << bb.zMax(); return *this; }
+
+OutputStream& OutputStream::operator<<( const osg::BoundingSpheref& bs)
+{ *this << bs.center().x() << bs.center().y() << bs.center().z() << bs.radius(); return *this; }
+
+OutputStream& OutputStream::operator<<( const osg::BoundingSphered& bs)
+{ *this << bs.center().x() << bs.center().y() << bs.center().z() << bs.radius(); return *this; }
 
 #if 0
 OutputStream& OutputStream::operator<<( const osg::Matrixf& mat )
@@ -558,7 +569,7 @@ void OutputStream::writeImage( const osg::Image* img )
             break;
         }
 
-        writeObjectFields( img );
+        writeObjectFields( img, "osg::Object" );
     }
 
     // *this << END_BRACKET << std::endl;
@@ -590,6 +601,12 @@ void OutputStream::writeObjectFields( const osg::Object* obj )
 {
     std::string name = obj->libraryName();
     name += std::string("::") + obj->className();
+    writeObjectFields(obj, name);
+}
+
+void OutputStream::writeObjectFields( const osg::Object* obj, const std::string& name )
+{
+    // OSG_NOTICE<<"OutputStream::writeObjectFields("<<obj->className()<<", name="<<name<<")"<<std::endl;
 
     ObjectWrapper* wrapper = Registry::instance()->getObjectWrapperManager()->findWrapper( name );
     if ( !wrapper )

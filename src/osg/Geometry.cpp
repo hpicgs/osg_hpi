@@ -189,6 +189,22 @@ const Array* Geometry::getTexCoordArray(unsigned int index) const
     else return 0;
 }
 
+void Geometry::setTexCoordArrayList(const ArrayList& arrayList)
+{
+    _texCoordList = arrayList;
+
+    dirtyDisplayList();
+
+    if (_useVertexBufferObjects)
+    {
+        for(ArrayList::iterator itr = _texCoordList.begin();
+            itr != _texCoordList.end();
+            ++itr)
+        {
+            addVertexBufferObjectIfRequired(itr->get());
+        }
+    }
+}
 
 void Geometry::setVertexAttribArray(unsigned int index, Array* array, osg::Array::Binding binding)
 {
@@ -214,6 +230,23 @@ const Array *Geometry::getVertexAttribArray(unsigned int index) const
 {
     if (index<_vertexAttribList.size()) return _vertexAttribList[index].get();
     else return 0;
+}
+
+void Geometry::setVertexAttribArrayList(const ArrayList& arrayList)
+{
+    _vertexAttribList = arrayList;
+
+    dirtyDisplayList();
+
+    if (_useVertexBufferObjects)
+    {
+        for(ArrayList::iterator itr = _vertexAttribList.begin();
+            itr != _vertexAttribList.end();
+            ++itr)
+        {
+            addVertexBufferObjectIfRequired(itr->get());
+        }
+    }
 }
 
 
@@ -712,7 +745,7 @@ void Geometry::drawImplementation(RenderInfo& renderInfo) const
     // draw the primitives themselves.
     //
     drawPrimitivesImplementation(renderInfo);
-    
+
     // unbind the VBO's if any are used.
     state.unbindVertexBufferObject();
     state.unbindElementBufferObject();
@@ -1553,9 +1586,8 @@ void Geometry::fixDeprecatedData()
 
     // start the primitiveNum at -1 as we increment it the first time through when
     // we start processing the primitive sets.
-    int primitiveNum = -1;
     int target_vindex = 0;
-    int source_pindex = -1;
+    int source_pindex = -1; // equals primitiveNum
     for(PrimitiveSetList::iterator itr = _primitives.begin();
         itr != _primitives.end();
         ++itr)
@@ -1580,19 +1612,21 @@ void Geometry::fixDeprecatedData()
             {
                 if (primLength==0) primLength=primitiveset->getNumIndices();
 
-                const DrawArrays* drawArray = static_cast<const DrawArrays*>(primitiveset);
+                DrawArrays* drawArray = static_cast<DrawArrays*>(primitiveset);
 
                 if (primLength==0) primLength = drawArray->getCount();
 
                 unsigned int primCount=0;
-                unsigned int indexEnd = drawArray->getFirst()+drawArray->getCount();
-                for(unsigned int vindex=drawArray->getFirst();
+                unsigned int startindex=drawArray->getFirst();
+                drawArray->setFirst(target_vindex);
+                unsigned int indexEnd = startindex+drawArray->getCount();
+                for(unsigned int vindex=startindex;
                     vindex<indexEnd;
                     ++vindex, ++target_vindex, ++primCount)
                 {
                     if ((primCount%primLength)==0) ++source_pindex;
 
-                    // copy bind per primitive from primitiveNum
+                    // copy bind per vertex from vindex
                     for(PtrList::iterator itr = perVertexPtrs.begin();
                         itr != perVertexPtrs.end();
                         ++itr)
@@ -1606,7 +1640,7 @@ void Geometry::fixDeprecatedData()
                         }
                     }
 
-                    // copy bind per vertex from vindex
+                    // copy bind per primitive from source_pindex
                     for(PtrList::iterator itr = perPrimitivePtrs.begin();
                         itr != perPrimitivePtrs.end();
                         ++itr)
@@ -1624,23 +1658,22 @@ void Geometry::fixDeprecatedData()
             }
             case(PrimitiveSet::DrawArrayLengthsPrimitiveType):
             {
-                const DrawArrayLengths* drawArrayLengths = static_cast<const DrawArrayLengths*>(primitiveset);
+                DrawArrayLengths* drawArrayLengths = static_cast<DrawArrayLengths*>(primitiveset);
                 unsigned int vindex=drawArrayLengths->getFirst();
-                for(DrawArrayLengths::const_iterator primItr=drawArrayLengths->begin();
+                for(DrawArrayLengths::iterator primItr=drawArrayLengths->begin();
                     primItr!=drawArrayLengths->end();
                     ++primItr)
                 {
                     unsigned int localPrimLength;
                     if (primLength==0) localPrimLength=*primItr;
                     else localPrimLength=primLength;
-
+                    drawArrayLengths->setFirst(target_vindex);
                     for(GLsizei primCount=0;
                         primCount<*primItr;
                         ++vindex, ++target_vindex, ++primCount)
                     {
                         if ((primCount%localPrimLength)==0) ++source_pindex;
-
-                        // copy bind per primitive from primitiveNum
+                        // copy bind per vertex from vindex
                         for(PtrList::iterator itr = perVertexPtrs.begin();
                             itr != perVertexPtrs.end();
                             ++itr)
@@ -1654,7 +1687,7 @@ void Geometry::fixDeprecatedData()
                             }
                         }
 
-                        // copy bind per vertex from vindex
+                        // copy bind per primitive from source_pindex
                         for(PtrList::iterator itr = perPrimitivePtrs.begin();
                             itr != perPrimitivePtrs.end();
                             ++itr)
@@ -1675,16 +1708,17 @@ void Geometry::fixDeprecatedData()
             {
                 if (primLength==0) primLength=primitiveset->getNumIndices();
 
-                const DrawElementsUByte* drawElements = static_cast<const DrawElementsUByte*>(primitiveset);
+                DrawElementsUByte* drawElements = static_cast<DrawElementsUByte*>(primitiveset);
                 unsigned int primCount=0;
-                for(DrawElementsUByte::const_iterator primItr=drawElements->begin();
+                for(DrawElementsUByte::iterator primItr=drawElements->begin();
                     primItr!=drawElements->end();
                     ++primCount, ++target_vindex, ++primItr)
                 {
                     if ((primCount%primLength)==0) ++source_pindex;
                     unsigned int vindex=*primItr;
+                    *primItr=target_vindex;
 
-                    // copy bind per primitive from primitiveNum
+                    // copy bind per vertex from vindex
                     for(PtrList::iterator itr = perVertexPtrs.begin();
                         itr != perVertexPtrs.end();
                         ++itr)
@@ -1698,7 +1732,7 @@ void Geometry::fixDeprecatedData()
                         }
                     }
 
-                    // copy bind per vertex from vindex
+                    // copy bind per primitive from source_pindex
                     for(PtrList::iterator itr = perPrimitivePtrs.begin();
                         itr != perPrimitivePtrs.end();
                         ++itr)
@@ -1718,16 +1752,17 @@ void Geometry::fixDeprecatedData()
             {
                 if (primLength==0) primLength=primitiveset->getNumIndices();
 
-                const DrawElementsUShort* drawElements = static_cast<const DrawElementsUShort*>(primitiveset);
+                DrawElementsUShort* drawElements = static_cast<DrawElementsUShort*>(primitiveset);
                 unsigned int primCount=0;
-                for(DrawElementsUShort::const_iterator primItr=drawElements->begin();
+                for(DrawElementsUShort::iterator primItr=drawElements->begin();
                     primItr!=drawElements->end();
                     ++primCount, ++target_vindex, ++primItr)
                 {
-                    if ((primCount%primLength)==0) ++primitiveNum;
+                    if ((primCount%primLength)==0) ++source_pindex;
                     unsigned int vindex=*primItr;
+                    *primItr=target_vindex;
 
-                    // copy bind per primitive from primitiveNum
+                    // copy bind per vertex from vindex
                     for(PtrList::iterator itr = perVertexPtrs.begin();
                         itr != perVertexPtrs.end();
                         ++itr)
@@ -1740,8 +1775,7 @@ void Geometry::fixDeprecatedData()
                             *target++ = *source++;
                         }
                     }
-
-                    // copy bind per vertex from vindex
+                    // copy bind per primitive from source_pindex
                     for(PtrList::iterator itr = perPrimitivePtrs.begin();
                         itr != perPrimitivePtrs.end();
                         ++itr)
@@ -1761,16 +1795,17 @@ void Geometry::fixDeprecatedData()
             {
                 if (primLength==0) primLength=primitiveset->getNumIndices();
 
-                const DrawElementsUInt* drawElements = static_cast<const DrawElementsUInt*>(primitiveset);
+                DrawElementsUInt* drawElements = static_cast<DrawElementsUInt*>(primitiveset);
                 unsigned int primCount=0;
-                for(DrawElementsUInt::const_iterator primItr=drawElements->begin();
+                for(DrawElementsUInt::iterator primItr=drawElements->begin();
                     primItr!=drawElements->end();
                     ++primCount, ++target_vindex, ++primItr)
                 {
-                    if ((primCount%primLength)==0) ++primitiveNum;
+                    if ((primCount%primLength)==0) ++source_pindex;
                     unsigned int vindex=*primItr;
+                    *primItr=target_vindex;
 
-                    // copy bind per primitive from primitiveNum
+                    // copy bind per vertex from vindex
                     for(PtrList::iterator itr = perVertexPtrs.begin();
                         itr != perVertexPtrs.end();
                         ++itr)
@@ -1784,7 +1819,7 @@ void Geometry::fixDeprecatedData()
                         }
                     }
 
-                    // copy bind per vertex from vindex
+                    // copy bind per primitive from source_pindex
                     for(PtrList::iterator itr = perPrimitivePtrs.begin();
                         itr != perPrimitivePtrs.end();
                         ++itr)

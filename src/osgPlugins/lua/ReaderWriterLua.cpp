@@ -28,45 +28,21 @@ class ReaderWriterLua : public osgDB::ReaderWriter
 
         virtual const char* className() const { return "Lua ScriptEngine plugin"; }
 
-        virtual ReadResult readObject(std::istream& fin,const osgDB::ReaderWriter::Options* options =NULL) const
+        lua::LuaScriptEngine* createScriptEngine(const osgDB::ReaderWriter::Options* options) const
         {
-            osg::ref_ptr<osg::Script> script = new osg::Script;
-            script->setLanguage("lua");
+            osg::ref_ptr<lua::LuaScriptEngine> se = new lua::LuaScriptEngine();
 
-            std::string str;
-            while(fin)
-            {
-                int c = fin.get();
-                if (c>=0 && c<=255)
-                {
-                    str.push_back(c);
-                }
-            }
-            script->setScript(str);
+            // add file paths
+            if (options) se->addPaths(options);
+            else se->addPaths(osgDB::Registry::instance()->getOptions());
 
-            return script.release();
-        }
-
-        virtual ReadResult readObject(const std::string& file, const osgDB::ReaderWriter::Options* options =NULL) const
-        {
-            if (file=="ScriptEngine.lua") return new lua::LuaScriptEngine();
-
-            std::string ext = osgDB::getLowerCaseFileExtension(file);
-            if (!acceptsExtension(ext)) return ReadResult::FILE_NOT_HANDLED;
-
-            std::string fileName = osgDB::findDataFile( file, options );
-            if (fileName.empty()) return ReadResult::FILE_NOT_FOUND;
-
-            osgDB::ifstream istream(fileName.c_str(), std::ios::in);
-            if(!istream) return ReadResult::FILE_NOT_HANDLED;
-
-            return readObject(istream, options);
+            return se.release();
         }
 
 
         virtual ReadResult readObjectFromScript(std::istream& fin, const osgDB::ReaderWriter::Options* options =NULL) const
         {
-            ReadResult result = readObject(fin, options);
+            ReadResult result = readScript(fin, options);
 
             if (!result.validObject()) return result;
             osg::ref_ptr<osg::Script> script = dynamic_cast<osg::Script*>(result.getObject());
@@ -76,7 +52,8 @@ class ReaderWriterLua : public osgDB::ReaderWriter
             osg::Parameters inputParameters;
             osg::Parameters outputParameters;
 
-            osg::ref_ptr<lua::LuaScriptEngine> se = new lua::LuaScriptEngine();
+            osg::ref_ptr<lua::LuaScriptEngine> se = createScriptEngine(options);
+
             if (!se->run(script.get(), entryPoint, inputParameters, outputParameters)) return 0;
 
             if (outputParameters.empty()) return 0;
@@ -96,9 +73,6 @@ class ReaderWriterLua : public osgDB::ReaderWriter
 
             if (objects.size()==1)
             {
-                osg::Group* group = dynamic_cast<osg::Group*>(objects[0].get());
-                OSG_NOTICE<<"readObject form script, have one object "<<objects[0]->className()<<" "<<objects[0].get()<<std::endl;
-                if (group) OSG_NOTICE<<"  group numChildren()="<<group->getNumChildren()<<std::endl;
                 return objects[0].get();
             }
 
@@ -115,6 +89,33 @@ class ReaderWriterLua : public osgDB::ReaderWriter
             else return 0;
         }
 
+        virtual ReadResult readObject(std::istream& fin, const osgDB::ReaderWriter::Options* options =NULL) const
+        {
+            return readObjectFromScript(fin, options);
+        }
+
+        virtual ReadResult readObject(const std::string& file, const osgDB::ReaderWriter::Options* options =NULL) const
+        {
+            if (file=="ScriptEngine.lua")
+            {
+                return createScriptEngine(options);
+            }
+
+            std::string ext = osgDB::getLowerCaseFileExtension(file);
+            if (!acceptsExtension(ext)) return ReadResult::FILE_NOT_HANDLED;
+
+            std::string fileName = osgDB::findDataFile( file, options );
+            if (fileName.empty()) return ReadResult::FILE_NOT_FOUND;
+
+            osg::ref_ptr<Options> local_opt = options ? static_cast<Options*>(options->clone(osg::CopyOp::SHALLOW_COPY)) : new Options;
+            local_opt->getDatabasePathList().push_front(osgDB::getFilePath(fileName));
+
+            osgDB::ifstream istream(fileName.c_str(), std::ios::in);
+            if(!istream) return ReadResult::FILE_NOT_HANDLED;
+
+            return readObject(istream, local_opt.get());
+        }
+
         virtual ReadResult readImage(std::istream& fin, const osgDB::ReaderWriter::Options* options =NULL) const
         {
             return readObjectFromScript(fin, options);
@@ -128,10 +129,13 @@ class ReaderWriterLua : public osgDB::ReaderWriter
             std::string fileName = osgDB::findDataFile( file, options );
             if (fileName.empty()) return ReadResult::FILE_NOT_FOUND;
 
+            osg::ref_ptr<Options> local_opt = options ? static_cast<Options*>(options->clone(osg::CopyOp::SHALLOW_COPY)) : new Options;
+            local_opt->getDatabasePathList().push_front(osgDB::getFilePath(fileName));
+
             osgDB::ifstream istream(fileName.c_str(), std::ios::in);
             if(!istream) return ReadResult::FILE_NOT_HANDLED;
 
-            return readImage(istream, options);
+            return readImage(istream, local_opt.get());
         }
 
         virtual ReadResult readNode(std::istream& fin, const osgDB::ReaderWriter::Options* options =NULL) const
@@ -139,8 +143,44 @@ class ReaderWriterLua : public osgDB::ReaderWriter
             return readObjectFromScript(fin, options);
         }
 
-       virtual ReadResult readNode(const std::string& file, const osgDB::ReaderWriter::Options* options =NULL) const
-       {
+         virtual ReadResult readNode(const std::string& file, const osgDB::ReaderWriter::Options* options =NULL) const
+        {
+            std::string ext = osgDB::getLowerCaseFileExtension(file);
+            if (!acceptsExtension(ext)) return ReadResult::FILE_NOT_HANDLED;
+
+            std::string fileName = osgDB::findDataFile( file, options );
+            if (fileName.empty()) return ReadResult::FILE_NOT_FOUND;
+
+            osg::ref_ptr<Options> local_opt = options ? static_cast<Options*>(options->clone(osg::CopyOp::SHALLOW_COPY)) : new Options;
+            local_opt->getDatabasePathList().push_front(osgDB::getFilePath(fileName));
+
+            osgDB::ifstream istream(fileName.c_str(), std::ios::in);
+            if(!istream) return ReadResult::FILE_NOT_HANDLED;
+
+            return readNode(istream, local_opt.get());
+        }
+
+        virtual ReadResult readScript(std::istream& fin,const osgDB::ReaderWriter::Options* options =NULL) const
+        {
+            osg::ref_ptr<osg::Script> script = new osg::Script;
+            script->setLanguage("lua");
+
+            std::string str;
+            while(fin)
+            {
+                int c = fin.get();
+                if (c>=0 && c<=255)
+                {
+                    str.push_back(c);
+                }
+            }
+            script->setScript(str);
+
+            return script.release();
+        }
+
+        virtual ReadResult readScript(const std::string& file, const osgDB::ReaderWriter::Options* options =NULL) const
+        {
             std::string ext = osgDB::getLowerCaseFileExtension(file);
             if (!acceptsExtension(ext)) return ReadResult::FILE_NOT_HANDLED;
 
@@ -150,8 +190,9 @@ class ReaderWriterLua : public osgDB::ReaderWriter
             osgDB::ifstream istream(fileName.c_str(), std::ios::in);
             if(!istream) return ReadResult::FILE_NOT_HANDLED;
 
-            return readNode(istream, options);
-       }
+            return readScript(istream, options);
+        }
+
 };
 
 // now register with Registry to instantiate the above

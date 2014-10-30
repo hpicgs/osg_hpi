@@ -199,7 +199,8 @@ bool ObjectWrapper::read( InputStream& is, osg::Object& obj )
     {
         BaseSerializer* serializer = itr->get();
         if ( serializer->_firstVersion <= inputVersion &&
-             inputVersion <= serializer->_lastVersion )
+             inputVersion <= serializer->_lastVersion &&
+             serializer->supportsReadWrite())
         {
             if ( !serializer->read(is, obj) )
             {
@@ -233,7 +234,8 @@ bool ObjectWrapper::write( OutputStream& os, const osg::Object& obj )
     {
         BaseSerializer* serializer = itr->get();
         if ( serializer->_firstVersion <= outputVersion &&
-             outputVersion <= serializer->_lastVersion )
+             outputVersion <= serializer->_lastVersion  &&
+             serializer->supportsReadWrite())
         {
             if ( !serializer->write(os, obj) )
             {
@@ -295,22 +297,22 @@ bool ObjectWrapper::readSchema( const StringList& properties, const TypeList& )
 
 void ObjectWrapper::writeSchema( StringList& properties, TypeList& types )
 {
-    for ( SerializerList::iterator itr=_serializers.begin();
-          itr!=_serializers.end(); ++itr )
+    SerializerList::iterator sitr = _serializers.begin();
+    TypeList::iterator titr = _typeList.begin();
+    while(sitr!=_serializers.end() && titr!=_typeList.end())
     {
-        properties.push_back( (*itr)->getName() );
-    }
-
-    for ( TypeList::iterator itr=_typeList.begin();
-          itr!=_typeList.end(); ++itr )
-    {
-        types.push_back( (*itr) );
+        if ((*sitr)->supportsReadWrite())
+        {
+            properties.push_back( (*sitr)->getName() );
+            types.push_back( (*titr) );
+        }
+        ++sitr;
+        ++titr;
     }
 }
 
 void ObjectWrapper::addMethodObject(const std::string& methodName, MethodObject* mo)
 {
-    OSG_NOTICE<<"Inserting MethodObject "<<methodName<<std::endl;
     _methodObjectMap.insert(MethodObjectMap::value_type(methodName, mo));
 }
 
@@ -427,6 +429,9 @@ ObjectWrapperManager::ObjectWrapperManager()
     glTable.add( "GL_LIGHT5", GL_LIGHT5 );
     glTable.add( "GL_LIGHT6", GL_LIGHT6 );
     glTable.add( "GL_LIGHT7", GL_LIGHT7 );
+
+    glTable.add("GL_VERTEX_PROGRAM_POINT_SIZE", GL_VERTEX_PROGRAM_POINT_SIZE);
+    glTable.add("GL_VERTEX_PROGRAM_TWO_SIDE", GL_VERTEX_PROGRAM_TWO_SIDE);
 
     // Functions
     glTable.add( "NEVER", GL_NEVER );

@@ -285,7 +285,7 @@ public:
         {
             if (node.getDrawable(i))
             {
-                updateBound(node.getDrawable(i)->getBound());
+                updateBound(node.getDrawable(i)->getBoundingBox());
             }
         }
 
@@ -973,7 +973,7 @@ void ViewDependentShadowMap::cull(osgUtil::CullVisitor& cv)
             if (settings->getDebugDraw())
             {
                 camera->getViewport()->x() = pos_x;
-                pos_x += camera->getViewport()->width() + 40;
+                pos_x += static_cast<unsigned int>(camera->getViewport()->width()) + 40;
             }
 
             // transform polytope in model coords into light spaces eye coords.
@@ -1870,7 +1870,7 @@ struct RenderLeafBounds
             // OSG_INFO<<"Reusing light_mvp "<<light_mvp<<std::endl;
         }
 
-        const osg::BoundingBox& bb = renderLeaf->_drawable->getBound();
+        const osg::BoundingBox& bb = renderLeaf->_drawable->getBoundingBox();
         if (bb.valid())
         {
             // OSG_NOTICE<<"checked extents of "<<renderLeaf->_drawable->getName()<<std::endl;

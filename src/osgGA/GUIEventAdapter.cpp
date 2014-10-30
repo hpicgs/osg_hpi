@@ -67,8 +67,11 @@ GUIEventAdapter::GUIEventAdapter(const GUIEventAdapter& rhs,const osg::CopyOp& c
     _mouseYOrientation(rhs._mouseYOrientation),
     _scrolling(rhs._scrolling),
     _tabletPen(rhs._tabletPen),
-    _touchData(rhs._touchData)
-{}
+    _touchData(NULL)
+{
+    if(TouchData* td = rhs.getTouchData())
+        setTouchData(osg::clone(td, copyop));
+}
 
 GUIEventAdapter::~GUIEventAdapter()
 {
@@ -128,4 +131,21 @@ void GUIEventAdapter::copyPointerDataFrom(const osgGA::GUIEventAdapter& sourceEv
     setButtonMask(sourceEvent.getButtonMask());
     setMouseYOrientation(sourceEvent.getMouseYOrientation());
     setPointerDataList(sourceEvent.getPointerDataList());
+}
+
+
+
+void GUIEventAdapter::setMouseYOrientationAndUpdateCoords(osgGA::GUIEventAdapter::MouseYOrientation myo)
+{
+    if ( myo==_mouseYOrientation )
+    return;
+
+    setMouseYOrientation( myo );
+
+    _my = _Ymax - _my + _Ymin;
+    if( isMultiTouchEvent() )
+    {
+        for( TouchData::iterator itr =  getTouchData()->begin(); itr != getTouchData()->end(); itr++ ) 
+            itr->y = _Ymax - itr->y + _Ymin;
+    }
 }

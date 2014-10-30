@@ -81,6 +81,7 @@ public:
 
     void addSerializer( BaseSerializer* s, BaseSerializer::Type t=BaseSerializer::RW_UNDEFINED );
     void markSerializerAsRemoved( const std::string& name );
+    BaseSerializer* getLastSerializer() { return _serializers.empty() ? 0 : _serializers.back().get(); }
     BaseSerializer* getSerializer( const std::string& name );
     BaseSerializer* getSerializer( const std::string& name, BaseSerializer::Type& type);
 
@@ -248,8 +249,6 @@ protected:
         wrapper_createinstancefunc##NAME, #DOMAIN, CLASSNAME, ASSOCIATES, &wrapper_propfunc_##NAME); \
     typedef CLASS MyClass; \
     void wrapper_propfunc_##NAME(const char* domain, osgDB::ObjectWrapper* wrapper)
-
-#define ADD_METHOD_OBJECT( METHODNAME, METHODOBJECTCLASS ) wrapper->addMethodObject(METHODNAME, new METHODOBJECTCLASS());
 
 class OSGDB_EXPORT RegisterCompressorProxy
 {

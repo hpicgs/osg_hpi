@@ -19,6 +19,8 @@
 
 #include <osg/io_utils> // just for debugging
 
+#include <algorithm>
+
 using namespace std;
 using namespace osg;
 

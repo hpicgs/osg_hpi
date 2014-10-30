@@ -15,14 +15,12 @@
 #define OSG_SCRIPTENGINE 1
 
 #include <osg/Object>
-#include <osg/NodeCallback>
+#include <osg/Callback>
 #include <osg/NodeVisitor>
+#include <osg/UserDataContainer>
 
 namespace osg
 {
-
-typedef std::vector< osg::ref_ptr<osg::Object> > Parameters;
-
 
 // forward declare
 class ScriptEngine;
@@ -55,14 +53,15 @@ class Script : public osg::Object
         unsigned int _modifiedCount;
 };
 
+
 /** NodeCallback for attaching a script to a NodeCallback so that it can be called as an update or event callback.*/
-class OSG_EXPORT ScriptCallback : public osg::NodeCallback
+class OSG_EXPORT ScriptNodeCallback : public osg::NodeCallback
 {
     public:
-        ScriptCallback(Script* script=0, const std::string& entryPoint="") : _script(script), _entryPoint(entryPoint) {}
-        ScriptCallback(const ScriptCallback& rhs, const osg::CopyOp& copyop=osg::CopyOp::SHALLOW_COPY): osg::NodeCallback(rhs,copyop), _script(rhs._script) {}
+        ScriptNodeCallback(Script* script=0, const std::string& entryPoint="") : _script(script), _entryPoint(entryPoint) {}
+        ScriptNodeCallback(const ScriptNodeCallback& rhs, const osg::CopyOp& copyop=osg::CopyOp::SHALLOW_COPY): osg::NodeCallback(rhs,copyop), _script(rhs._script) {}
 
-        META_Object(osg, ScriptCallback)
+        META_Object(osg, ScriptNodeCallback)
 
         /** Set the script to call.*/
         void setScript(osg::Script* script) { _script  = script; }
@@ -81,7 +80,7 @@ class OSG_EXPORT ScriptCallback : public osg::NodeCallback
 
     protected:
 
-        virtual ~ScriptCallback() {}
+        virtual ~ScriptNodeCallback() {}
 
         osg::ref_ptr<Script>    _script;
         std::string             _entryPoint;
