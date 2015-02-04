@@ -1102,12 +1102,9 @@ void StatsHandler::setUpScene(osgViewer::ViewerBase* viewer)
         if ((*citr)->getGraphicsContext())
         {
             const osg::State* state = (*citr)->getGraphicsContext()->getState();
-            unsigned int contextID = state->getContextID();
-            const osg::Drawable::Extensions* extensions = osg::Drawable::getExtensions(contextID, false);
+            const osg::GLExtensions* extensions = state->get<osg::GLExtensions>();
             if (extensions &&
-                (((extensions->isARBTimerQuerySupported()
-                  && state->getTimestampBits() > 0))
-                 || extensions->isTimerQuerySupported()))
+                (((extensions->isARBTimerQuerySupported && state->getTimestampBits() > 0)) || extensions->isTimerQuerySupported))
             {
                 ++numCamrasWithTimerQuerySupport;
             }

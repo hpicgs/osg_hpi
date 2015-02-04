@@ -1,20 +1,36 @@
-#ifndef OSGTERRAIN_SHADERTERRAIN
-#define OSGTERRAIN_SHADERTERRAIN
+/* -*-c++-*- OpenSceneGraph - Copyright (C) 1998-2014 Robert Osfield
+ *
+ * This library is open source and may be redistributed and/or modified under
+ * the terms of the OpenSceneGraph Public License (OSGPL) version 0.0 or
+ * (at your option) any later version.  The full license is in LICENSE file
+ * included with this distribution, and on the openscenegraph.org website.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * OpenSceneGraph Public License for more details.
+*/
 
-#include <OpenThreads/Mutex>
+#ifndef OSGTERRAIN_GEOMETRYPOOL
+#define OSGTERRAIN_GEOMETRYPOOL 1
+
+#include <osg/Geometry>
 #include <osg/MatrixTransform>
 #include <osg/Program>
-#include <osgTerrain/GeometryTechnique>
 
-namespace osgTerrain
-{
+#include <OpenThreads/Mutex>
 
-extern const osgTerrain::Locator* computeMasterLocator(const osgTerrain::TerrainTile* tile);
+#include <osgTerrain/TerrainTile>
 
-class GeometryPool : public osg::Referenced
+
+namespace osgTerrain {
+
+extern OSGTERRAIN_EXPORT const osgTerrain::Locator* computeMasterLocator(const osgTerrain::TerrainTile* tile);
+
+class OSGTERRAIN_EXPORT GeometryPool : public osg::Referenced
 {
     public:
-        GeometryPool() {}
+        GeometryPool();
 
         struct GeometryKey
         {
@@ -59,22 +75,26 @@ class GeometryPool : public osg::Referenced
         typedef std::vector<LayerType> LayerTypes;
         typedef std::map<LayerTypes, osg::ref_ptr<osg::Program> > ProgramMap;
 
-        ProgramMap& getProgramMap() { return _programMap; }
-        osg::Program* getOrCreateProgram(LayerTypes& layerTypes);
+        osg::ref_ptr<osg::Program> getOrCreateProgram(LayerTypes& layerTypes);
 
-        osg::Geometry* getOrCreateGeometry(osgTerrain::TerrainTile* tile);
-        osg::MatrixTransform* getTileSubgraph(osgTerrain::TerrainTile* tile);
+        osg::ref_ptr<osg::Geometry> getOrCreateGeometry(osgTerrain::TerrainTile* tile);
+
+        osg::ref_ptr<osg::MatrixTransform> getTileSubgraph(osgTerrain::TerrainTile* tile);
+
         void applyLayers(osgTerrain::TerrainTile* tile, osg::StateSet* stateset);
 
     protected:
-        virtual ~GeometryPool() {}
+        virtual ~GeometryPool();
 
         OpenThreads::Mutex      _geometryMapMutex;
         GeometryMap             _geometryMap;
+
+        OpenThreads::Mutex      _programMapMutex;
         ProgramMap              _programMap;
 };
 
-class HeightFieldDrawable : public osg::Drawable
+
+class OSGTERRAIN_EXPORT HeightFieldDrawable : public osg::Drawable
 {
     public:
         HeightFieldDrawable();
@@ -118,29 +138,7 @@ protected:
 
 };
 
-class ShaderTerrain : public osgTerrain::TerrainTechnique
-{
-    public:
 
-        ShaderTerrain();
-
-        ShaderTerrain(const ShaderTerrain&,const osg::CopyOp& copyop=osg::CopyOp::SHALLOW_COPY);
-
-        META_Object(osgTerrain, ShaderTerrain);
-
-        virtual void init(int dirtyMask, bool assumeMultiThreaded);
-        virtual void update(osgUtil::UpdateVisitor* uv);
-        virtual void cull(osgUtil::CullVisitor* cv);
-        virtual void traverse(osg::NodeVisitor& nv);
-        virtual void cleanSceneGraph();
-        virtual void releaseGLObjects(osg::State* state) const;
-
-    protected:
-
-        osg::ref_ptr<GeometryPool> _geometryPool;
-
-        osg::ref_ptr<osg::MatrixTransform> _transform;
-};
 
 }
 

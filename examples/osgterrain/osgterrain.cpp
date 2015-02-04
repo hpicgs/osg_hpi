@@ -33,9 +33,9 @@
 #include <osgTerrain/Terrain>
 #include <osgTerrain/TerrainTile>
 #include <osgTerrain/GeometryTechnique>
+#include <osgTerrain/DisplacementMappingTechnique>
 #include <osgTerrain/Layer>
 
-#include "ShaderTerrain.h"
 
 #include <iostream>
 
@@ -238,12 +238,15 @@ int main(int argc, char** argv)
         else if (strBlendingPolicy == "ENABLE_BLENDING_WHEN_ALPHA_PRESENT") blendingPolicy = osgTerrain::TerrainTile::ENABLE_BLENDING_WHEN_ALPHA_PRESENT;
     }
 
-    bool useShaderTerrain = arguments.read("--shader") || arguments.read("-s");
-    if (useShaderTerrain)
+    bool useDisplacementMappingTechnique = arguments.read("--dm");
+    if (useDisplacementMappingTechnique)
     {
         osgDB::Registry::instance()->setReadFileCallback(new CleanTechniqueReadFileCallback());
     }
 
+    bool setDatabaseThreadAffinity = false;
+    unsigned int cpuNum = 0;
+    while(arguments.read("--db-affinity", cpuNum)) { setDatabaseThreadAffinity = true; }
 
     // load the nodes from the commandline arguments.
     osg::ref_ptr<osg::Node> rootnode = osgDB::readNodeFiles(arguments);
@@ -282,9 +285,9 @@ int main(int argc, char** argv)
     terrain->setVerticalScale(verticalScale);
     terrain->setBlendingPolicy(blendingPolicy);
 
-    if (useShaderTerrain)
+    if (useDisplacementMappingTechnique)
     {
-        terrain->setTerrainTechniquePrototype(new osgTerrain::ShaderTerrain());
+        terrain->setTerrainTechniquePrototype(new osgTerrain::DisplacementMappingTechnique());
     }
 
 
@@ -294,6 +297,16 @@ int main(int argc, char** argv)
     // add a viewport to the viewer and attach the scene graph.
     viewer.setSceneData( rootnode.get() );
 
+    // if required set the DatabaseThread affinity, note must call after viewer.setSceneData() so that the osgViewer::Scene object is constructed with it's DatabasePager.
+    if (setDatabaseThreadAffinity)
+    {
+        for (unsigned int i=0; i<viewer.getDatabasePager()->getNumDatabaseThreads(); ++i)
+        {
+            osgDB::DatabasePager::DatabaseThread* thread = viewer.getDatabasePager()->getDatabaseThread(i);
+            thread->setProcessorAffinity(cpuNum);
+            OSG_NOTICE<<"Settings affinity of DatabaseThread="<<thread<<" isRunning()="<<thread->isRunning()<<" cpuNum="<<cpuNum<<std::endl;
+        }
+    }
 
     // run the viewers main loop
     return viewer.run();

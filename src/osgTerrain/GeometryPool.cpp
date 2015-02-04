@@ -1,20 +1,22 @@
+/* -*-c++-*- OpenSceneGraph - Copyright (C) 1998-2014 Robert Osfield
+ *
+ * This library is open source and may be redistributed and/or modified under
+ * the terms of the OpenSceneGraph Public License (OSGPL) version 0.0 or
+ * (at your option) any later version.  The full license is in LICENSE file
+ * included with this distribution, and on the openscenegraph.org website.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * OpenSceneGraph Public License for more details.
+*/
 
-#include <osgTerrain/Layer>
-#include <osgTerrain/TerrainTile>
+#include <osgTerrain/GeometryPool>
 #include <osg/Texture1D>
 #include <osg/Texture2D>
-#include <osg/Program>
-#include <osg/Uniform>
-#include <osg/io_utils>
-
 #include <osgDB/ReadFile>
-#include <osgDB/WriteFile>
-#include <osgDB/FileUtils>
-
-#include "ShaderTerrain.h"
 
 using namespace osgTerrain;
-
 
 const osgTerrain::Locator* osgTerrain::computeMasterLocator(const osgTerrain::TerrainTile* tile)
 {
@@ -34,10 +36,19 @@ const osgTerrain::Locator* osgTerrain::computeMasterLocator(const osgTerrain::Te
     return masterLocator;
 }
 
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 //  GeometryPool
 //
+GeometryPool::GeometryPool()
+{
+}
+
+GeometryPool::~GeometryPool()
+{
+}
+
 bool GeometryPool::createKeyForTile(TerrainTile* tile, GeometryKey& key)
 {
     const osgTerrain::Locator* masterLocator = computeMasterLocator(tile);
@@ -79,7 +90,7 @@ bool GeometryPool::createKeyForTile(TerrainTile* tile, GeometryKey& key)
 static int numberGeometryCreated = 0;
 static int numberSharedGeometry = 0;
 
-osg::Geometry* GeometryPool::getOrCreateGeometry(osgTerrain::TerrainTile* tile)
+osg::ref_ptr<osg::Geometry> GeometryPool::getOrCreateGeometry(osgTerrain::TerrainTile* tile)
 {
     OpenThreads::ScopedLock<OpenThreads::Mutex>  lock(_geometryMapMutex);
 
@@ -109,75 +120,235 @@ osg::Geometry* GeometryPool::getOrCreateGeometry(osgTerrain::TerrainTile* tile)
     geometry->setColorArray(colours.get(), osg::Array::BIND_OVERALL);
     colours->push_back(osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f));
 
-    osg::ref_ptr<osg::Vec2Array> texcoords = new osg::Vec2Array;
+    osg::ref_ptr<osg::Vec4Array> texcoords = new osg::Vec4Array;
     geometry->setTexCoordArray(0, texcoords.get(), osg::Array::BIND_PER_VERTEX);
-    geometry->setTexCoordArray(1, texcoords.get(), osg::Array::BIND_PER_VERTEX);
-    geometry->setTexCoordArray(2, texcoords.get(), osg::Array::BIND_PER_VERTEX);
-    geometry->setTexCoordArray(3, texcoords.get(), osg::Array::BIND_PER_VERTEX);
 
     int nx = key.nx;
     int ny = key.nx;
-    int numVertices = nx * ny;
 
+    int numVerticesMainBody = nx * ny;
+    int numVerticesSkirt = (nx)*2 + (ny)*2;
+    int numVertices = numVerticesMainBody + numVerticesSkirt;
 
     vertices->reserve(numVertices);
     normals->reserve(numVertices);
     texcoords->reserve(numVertices);
 
-    double r_mult = 1.0/static_cast<double>(ny-1);
     double c_mult = 1.0/static_cast<double>(nx-1);
+    double r_mult = 1.0/static_cast<double>(ny-1);
 
-    typedef std::vector<osg::Vec2d> LocationCoords;
+    typedef std::vector<osg::Vec4d> LocationCoords;
     LocationCoords locationCoords;
     locationCoords.reserve(numVertices);
 
     osg::Vec3d pos(0.0, 0.0, 0.0);
     osg::Vec3d normal(0.0, 0.0, 1.0);
-    for(int r=0; r<ny; ++r)
+    osg::Vec2 delta(1.0f/static_cast<float>(nx), 1.0f/static_cast<float>(ny));
+
+    // pass in the delta texcoord per texel via the color array
+    (*colours)[0].x() = c_mult;
+    (*colours)[0].y() = r_mult;
+
+
+
+    osg::Matrixd matrix;
+    const osgTerrain::Locator* locator = computeMasterLocator(tile);
+    if (locator)
     {
-        pos.y () = static_cast<double>(r)*r_mult;
+        matrix = locator->getTransform();
+    }
+
+    // compute the size of the skirtHeight
+    osg::Vec3d bottom_left(0.0,0.0,0.0);
+    osg::Vec3d top_right(1.0,1.0,0.0);
+
+    // transform for unit coords to local coords of the tile
+    bottom_left = bottom_left * matrix;
+    top_right = top_right * matrix;
+
+    // if we have a geocentric database then transform into geocentric coords.
+    const osg::EllipsoidModel* em = locator->getEllipsoidModel();
+    if (em && locator->getCoordinateSystemType()==osgTerrain::Locator::GEOCENTRIC)
+    {
+        // note y axis maps to latitude, x axis to longitude
+        em->convertLatLongHeightToXYZ(bottom_left.y(), bottom_left.x(), bottom_left.z(), bottom_left.x(), bottom_left.y(), bottom_left.z());
+        em->convertLatLongHeightToXYZ(top_right.y(), top_right.x(), top_right.z(), top_right.x(), top_right.y(), top_right.z());
+    }
+
+    double diagonalLength = (top_right-bottom_left).length();
+    double skirtRatio = 0.02;
+    double skirtHeight = -diagonalLength*skirtRatio;
+
+    // set up the vertex data
+    {
+        // bottom row for skirt
+        pos.y () = static_cast<double>(0)*r_mult;
+        pos.z() = skirtHeight;
         for(int c=0; c<nx; ++c)
         {
             pos.x() = static_cast<double>(c)*c_mult;
             vertices->push_back(pos);
             normals->push_back(normal);
-            texcoords->push_back(osg::Vec2(pos.x(), pos.y()));
-            locationCoords.push_back(osg::Vec2d(pos.x(), pos.y()));
+            texcoords->push_back(osg::Vec4(pos.x(), pos.y(), 1.0f, 1.0f));
+            locationCoords.push_back(osg::Vec4d(pos.x(), pos.y(),c_mult, r_mult));
+        }
+
+        // main body
+        for(int r=0; r<ny; ++r)
+        {
+            pos.y () = static_cast<double>(r)*r_mult;
+
+            // start skirt vertex
+            pos.z() = skirtHeight;
+            {
+                pos.x() = static_cast<double>(0)*c_mult;
+                vertices->push_back(pos);
+                normals->push_back(normal);
+                texcoords->push_back(osg::Vec4(pos.x(), pos.y(), 1.0f, 1.0f));
+                locationCoords.push_back(osg::Vec4d(pos.x(), pos.y(),c_mult, r_mult));
+            }
+
+            pos.z() = 0;
+            for(int c=0; c<nx; ++c)
+            {
+                pos.x() = static_cast<double>(c)*c_mult;
+                vertices->push_back(pos);
+                normals->push_back(normal);
+                texcoords->push_back(osg::Vec4(pos.x(), pos.y(), 1.0f, 1.0f));
+                locationCoords.push_back(osg::Vec4d(pos.x(), pos.y(),c_mult, r_mult));
+            }
+
+            // end skirt vertex
+            pos.z() = skirtHeight;
+            {
+                pos.x() = static_cast<double>(nx-1)*c_mult;
+                vertices->push_back(pos);
+                normals->push_back(normal);
+                texcoords->push_back(osg::Vec4(pos.x(), pos.y(), 1.0f, 1.0f));
+                locationCoords.push_back(osg::Vec4d(pos.x(), pos.y(),c_mult, r_mult));
+            }
+
+        }
+
+        // top row skirt
+        pos.y () = static_cast<double>(ny-1)*r_mult;
+        pos.z() = skirtHeight;
+        for(int c=0; c<nx; ++c)
+        {
+            pos.x() = static_cast<double>(c)*c_mult;
+            vertices->push_back(pos);
+            normals->push_back(normal);
+            texcoords->push_back(osg::Vec4(pos.x(), pos.y(), 1.0f, 1.0f));
+            locationCoords.push_back(osg::Vec4d(pos.x(), pos.y(),c_mult, r_mult));
         }
     }
 
+#if 1
+
+    bool smallTile = numVertices <= 16384;
+    osg::ref_ptr<osg::DrawElements> elements = smallTile ?
+        static_cast<osg::DrawElements*>(new osg::DrawElementsUShort(GL_TRIANGLE_STRIP)) :
+        static_cast<osg::DrawElements*>(new osg::DrawElementsUInt(GL_TRIANGLE_STRIP));
+
+    elements->reserveElements( (nx-1) * (ny-1) * 2 + (nx-1)*2*2 + (ny-1)*2*2 +(ny)*2);
+    geometry->addPrimitiveSet(elements.get());
+
+
+    // first row containing the skirt
+    int il = 0;
+    int iu = 0;
+    for(int c=0; c<nx; ++c)
+    {
+        il = c;
+        iu = il+nx+1;
+        elements->addElement(iu);
+        elements->addElement(il);
+    }
+    elements->addElement(il);
+
+    // center section
+    for(int r=0; r<ny-1; ++r)
+    {
+        il = nx+r*(nx+2);
+        iu = il+nx+2;
+        elements->addElement(iu);
+        for(int c=0; c<nx+2; ++c)
+        {
+            il = c+nx+r*(nx+2);
+            iu = il+nx+2;
+            elements->addElement(iu);
+            elements->addElement(il);
+        }
+        elements->addElement(il);
+    }
+
+    // top row containing skirt
+    il = nx+(ny-1)*(nx+2)+1;
+    iu = il+nx+1;
+    elements->addElement(iu);
+    for(int c=0; c<nx; ++c)
+    {
+        il = c+nx+(ny-1)*(nx+2)+1;
+        iu = il+nx+1;
+        elements->addElement(iu);
+        elements->addElement(il);
+    }
+
+#else
     bool smallTile = numVertices <= 16384;
     osg::ref_ptr<osg::DrawElements> elements = smallTile ?
         static_cast<osg::DrawElements*>(new osg::DrawElementsUShort(GL_QUADS)) :
         static_cast<osg::DrawElements*>(new osg::DrawElementsUInt(GL_QUADS));
 
-    elements->reserveElements((nx-1) * (ny-1) * 4);
+    elements->reserveElements( (nx-1) * (ny-1) * 4 + (nx-1)*2*4 + (ny-1)*2*4 );
     geometry->addPrimitiveSet(elements.get());
 
+
+    // first row containing the skirt
+    for(int c=0; c<nx-1; ++c)
+    {
+        int il = c;
+        int iu = il+nx+1;
+        elements->addElement(il);
+        elements->addElement(il+1);
+        elements->addElement(iu+1);
+        elements->addElement(iu);
+    }
+
+    // center section
     for(int r=0; r<ny-1; ++r)
     {
-        for(int c=0; c<nx-1; ++c)
+        for(int c=0; c<nx+1; ++c)
         {
-            int i = c+r*nx;
-            elements->addElement(i);
-            elements->addElement(i+1);
-            elements->addElement(i+nx+1);
-            elements->addElement(i+nx);
+            int il = c+nx+r*(nx+2);
+            int iu = il+nx+2;
+            elements->addElement(il);
+            elements->addElement(il+1);
+            elements->addElement(iu+1);
+            elements->addElement(iu);
         }
     }
 
-    osg::Matrixd matrix;
-
-    osg::Vec3d center(0.5, 0.5, 0.0);
-
-    osg::Vec3d bottom_left(0.0,0.0,0.0);
-    osg::Vec3d bottom_right(1.0,0.0,0.0);
-    osg::Vec3d top_left(0.0,1.0,0.0);
-
-    const osgTerrain::Locator* locator = computeMasterLocator(tile);
+    // top row containing skirt
+    for(int c=0; c<nx-1; ++c)
+    {
+        int il = c+nx+(ny-1)*(nx+2)+1;
+        int iu = il+nx+1;
+        elements->addElement(il);
+        elements->addElement(il+1);
+        elements->addElement(iu+1);
+        elements->addElement(iu);
+    }
+#endif
     if (locator)
     {
         matrix = locator->getTransform();
+
+        osg::Vec3d center(0.5, 0.5, 0.0);
+
+        osg::Vec3d bottom_left(0.0,0.0,0.0);
+        osg::Vec3d bottom_right(1.0,0.0,0.0);
+        osg::Vec3d top_left(0.0,1.0,0.0);
 
         center = center * matrix;
         bottom_left = bottom_left * matrix;
@@ -219,9 +390,24 @@ osg::Geometry* GeometryPool::getOrCreateGeometry(osgTerrain::TerrainTile* tile)
 
             for(int i=0; i<numVertices; ++i)
             {
-                const osg::Vec2d& location = locationCoords[i];
+                const osg::Vec4d& location = locationCoords[i];
+                double height = (*vertices)[i].z();
                 osg::Vec3d pos = osg::Vec3d(location.x(), location.y(), 0.0) * matrix;
-                em->convertLatLongHeightToXYZ(pos.y(), pos.x(), 0.0, pos.x(), pos.y(),pos.z());
+                em->convertLatLongHeightToXYZ(pos.y(), pos.x(), height, pos.x(), pos.y(),pos.z());
+
+                osg::Vec4& tc = (*texcoords)[i];
+
+                osg::Vec3d pos_right = osg::Vec3d(location.x()+location[2], location.y(), 0.0) * matrix;
+                em->convertLatLongHeightToXYZ(pos_right.y(), pos_right.x(), height, pos_right.x(), pos_right.y(),pos_right.z());
+
+                osg::Vec3d pos_up = osg::Vec3d(location.x(), location.y()+location[3], 0.0) * matrix;
+                em->convertLatLongHeightToXYZ(pos_up.y(), pos_up.x(), height, pos_up.x(), pos_up.y(),pos_up.z());
+
+                double length_right = (pos_right-pos).length();
+                double length_up = (pos_up-pos).length();
+                tc[2] = 1.0/length_right;
+                tc[3] = 1.0/length_up;
+
 
                 osg::Vec3d normal(pos);
                 normal = osg::Matrixd::transform3x3(localToWorldTransform, normal);
@@ -232,6 +418,7 @@ osg::Geometry* GeometryPool::getOrCreateGeometry(osgTerrain::TerrainTile* tile)
 
                 (*vertices)[i] = pos;
                 (*normals)[i] = normal;
+
             }
 
         }
@@ -253,10 +440,10 @@ osg::Geometry* GeometryPool::getOrCreateGeometry(osgTerrain::TerrainTile* tile)
     ++ numberGeometryCreated;
 //    OSG_NOTICE<<"Creating new geometry "<<geometry.get()<<std::endl;
 
-    return geometry.release();
+    return geometry;
 }
 
-osg::MatrixTransform* GeometryPool::getTileSubgraph(osgTerrain::TerrainTile* tile)
+osg::ref_ptr<osg::MatrixTransform> GeometryPool::getTileSubgraph(osgTerrain::TerrainTile* tile)
 {
     // create or reuse Geometry
     osg::ref_ptr<osg::Geometry> geometry = getOrCreateGeometry(tile);
@@ -338,10 +525,10 @@ osg::MatrixTransform* GeometryPool::getTileSubgraph(osgTerrain::TerrainTile* til
     // apply colour layers
     applyLayers(tile, stateset.get());
 
-    return transform.release();
+    return transform;
 }
 
-osg::Program* GeometryPool::getOrCreateProgram(LayerTypes& layerTypes)
+osg::ref_ptr<osg::Program> GeometryPool::getOrCreateProgram(LayerTypes& layerTypes)
 {
 #if 0
     OSG_NOTICE<<"getOrCreateProgram(";
@@ -359,6 +546,7 @@ osg::Program* GeometryPool::getOrCreateProgram(LayerTypes& layerTypes)
     }
 #endif
 
+    OpenThreads::ScopedLock<OpenThreads::Mutex>  lock(_programMapMutex);
     ProgramMap::iterator itr = _programMap.find(layerTypes);
     if (itr!=_programMap.end())
     {
@@ -369,15 +557,26 @@ osg::Program* GeometryPool::getOrCreateProgram(LayerTypes& layerTypes)
     osg::ref_ptr<osg::Program> program = new osg::Program;
     _programMap[layerTypes] = program;
 
-    OSG_NOTICE<<") creating new Program "<<program.get()<<std::endl;
+    // OSG_NOTICE<<") creating new Program "<<program.get()<<std::endl;
 
-    osg::ref_ptr<osg::Shader> vertex_shader = osgDB::readShaderFile("terrain.vert");
+
+    osg::ref_ptr<osg::Shader> vertex_shader = osgDB::readShaderFile("shaders/terrain_displacement_mapping.vert");
+    if (!vertex_shader)
+    {
+        #include "shaders/terrain_displacement_mapping_vert.cpp"
+        vertex_shader = new osg::Shader(osg::Shader::VERTEX, terrain_displacement_mapping_vert);
+    }
     program->addShader(vertex_shader.get());
 
-    osg::ref_ptr<osg::Shader> fragment_shader = osgDB::readShaderFile("terrain.frag");
+    osg::ref_ptr<osg::Shader> fragment_shader = osgDB::readShaderFile("shaders/terrain_displacement_mapping.frag");
+    if (!fragment_shader)
+    {
+        #include "shaders/terrain_displacement_mapping_frag.cpp"
+        fragment_shader = new osg::Shader(osg::Shader::FRAGMENT, terrain_displacement_mapping_frag);
+    }
     program->addShader(fragment_shader.get());
 
-    return program.get();
+    return program;
 }
 
 void GeometryPool::applyLayers(osgTerrain::TerrainTile* tile, osg::StateSet* stateset)
@@ -410,6 +609,9 @@ void GeometryPool::applyLayers(osgTerrain::TerrainTile* tile, osg::StateSet* sta
             texture2D->setImage(image.get());
             texture2D->setFilter(osg::Texture2D::MIN_FILTER, osg::Texture2D::NEAREST);
             texture2D->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::NEAREST);
+            texture2D->setWrap(osg::Texture::WRAP_S,osg::Texture::CLAMP);
+            texture2D->setWrap(osg::Texture::WRAP_T,osg::Texture::CLAMP);
+            texture2D->setBorderColor(osg::Vec4d(0.0,0.0,0.0,0.0));
             texture2D->setResizeNonPowerOfTwoHint(false);
 
             layerToTextureMap[hfl] = texture2D;
@@ -518,10 +720,10 @@ void GeometryPool::applyLayers(osgTerrain::TerrainTile* tile, osg::StateSet* sta
     }
 #endif
 
-    osg::Program* program = getOrCreateProgram(layerTypes);
-    if (program)
+    osg::ref_ptr<osg::Program> program = getOrCreateProgram(layerTypes);
+    if (program.valid())
     {
-        stateset->setAttribute(program);
+        stateset->setAttribute(program.get());
     }
 }
 
@@ -580,97 +782,4 @@ void HeightFieldDrawable::accept(osg::PrimitiveFunctor& pf) const
 void HeightFieldDrawable::accept(osg::PrimitiveIndexFunctor& pif) const
 {
     if (_geometry) _geometry->accept(pif);
-}
-
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//  ShaderTerrain
-//
-ShaderTerrain::ShaderTerrain()
-{
-    // OSG_NOTICE<<"ShaderTerrain::ShaderTerrain()"<<std::endl;
-    _geometryPool = new GeometryPool;
-}
-
-ShaderTerrain::ShaderTerrain(const ShaderTerrain& st,const osg::CopyOp& copyop):
-    osgTerrain::TerrainTechnique(st, copyop),
-    _geometryPool(st._geometryPool)
-{
-    // OSG_NOTICE<<"ShaderTerrain::ShaderTerrain(ShaderTerrain&, CopyOp&) "<<_geometryPool.get()<<std::endl;
-}
-
-void ShaderTerrain::init(int dirtyMask, bool assumeMultiThreaded)
-{
-    if (!_terrainTile) return;
-
-    //OSG_NOTICE<<"ShaderTerrain::init("<<dirtyMask<<", "<<assumeMultiThreaded<<")"<<std::endl;
-
-    _transform = _geometryPool->getTileSubgraph(_terrainTile);
-
-    // set tile as no longer dirty.
-    _terrainTile->setDirtyMask(0);
-}
-
-void ShaderTerrain::update(osgUtil::UpdateVisitor* uv)
-{
-    if (_terrainTile) _terrainTile->osg::Group::traverse(*uv);
-
-    if (_transform.valid()) _transform->accept(*uv);
-}
-
-
-void ShaderTerrain::cull(osgUtil::CullVisitor* cv)
-{
-    if (_transform.valid()) _transform->accept(*cv);
-}
-
-
-void ShaderTerrain::traverse(osg::NodeVisitor& nv)
-{
-    if (!_terrainTile) return;
-
-    // if app traversal update the frame count.
-    if (nv.getVisitorType()==osg::NodeVisitor::UPDATE_VISITOR)
-    {
-        if (_terrainTile->getDirty()) _terrainTile->init(_terrainTile->getDirtyMask(), false);
-
-        osgUtil::UpdateVisitor* uv = dynamic_cast<osgUtil::UpdateVisitor*>(&nv);
-        if (uv)
-        {
-            update(uv);
-            return;
-        }
-    }
-    else if (nv.getVisitorType()==osg::NodeVisitor::CULL_VISITOR)
-    {
-        osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(&nv);
-        if (cv)
-        {
-            cull(cv);
-            return;
-        }
-    }
-
-
-    if (_terrainTile->getDirty())
-    {
-        // OSG_INFO<<"******* Doing init ***********"<<std::endl;
-        _terrainTile->init(_terrainTile->getDirtyMask(), false);
-    }
-
-    if (_transform.valid())
-    {
-        _transform->accept(nv);
-    }
-}
-
-
-void ShaderTerrain::cleanSceneGraph()
-{
-}
-
-void ShaderTerrain::releaseGLObjects(osg::State* state) const
-{
-    _transform->releaseGLObjects(state);
 }

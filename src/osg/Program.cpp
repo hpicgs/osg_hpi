@@ -30,7 +30,7 @@
 #include <osg/ref_ptr>
 #include <osg/Program>
 #include <osg/Shader>
-#include <osg/GL2Extensions>
+#include <osg/GLExtensions>
 
 #include <OpenThreads/ScopedLock>
 #include <OpenThreads/Mutex>
@@ -66,8 +66,8 @@ void Program::flushDeletedGlPrograms(unsigned int contextID,double /*currentTime
     if (availableTime<=0.0) return;
 
     OpenThreads::ScopedLock<OpenThreads::Mutex> lock(s_mutex_deletedGlProgramCache);
-    const GL2Extensions* extensions = GL2Extensions::Get(contextID,true);
-    if( ! extensions->isGlslSupported() ) return;
+    const GLExtensions* extensions = GLExtensions::Get(contextID,true);
+    if( ! extensions->isGlslSupported ) return;
 
     const osg::Timer& timer = *osg::Timer::instance();
     osg::Timer_t start_tick = timer.tick();
@@ -441,8 +441,8 @@ void Program::removeBindUniformBlock(const std::string& name)
 void Program::apply( osg::State& state ) const
 {
     const unsigned int contextID = state.getContextID();
-    const GL2Extensions* extensions = GL2Extensions::Get(contextID,true);
-    if( ! extensions->isGlslSupported() ) return;
+    const GLExtensions* extensions = state.get<GLExtensions>();
+    if( ! extensions->isGlslSupported ) return;
 
     if( isFixedFunction() )
     {
@@ -532,9 +532,9 @@ Program::PerContextProgram::PerContextProgram(const Program* program, unsigned i
         _ownsProgramHandle(false)
 {
     _program = program;
-    _extensions = GL2Extensions::Get( _contextID, true );
     if (_glProgramHandle == 0)
     {
+        _extensions = GLExtensions::Get( _contextID, true );
         _glProgramHandle = _extensions->glCreateProgram();
         _ownsProgramHandle = true;
     }
@@ -581,7 +581,7 @@ void Program::PerContextProgram::linkProgram(osg::State& state)
 
     if (!_loadedBinary)
     {
-        if (_extensions->isGeometryShader4Supported())
+        if (_extensions->isGeometryShader4Supported)
         {
             _extensions->glProgramParameteri( _glProgramHandle, GL_GEOMETRY_VERTICES_OUT_EXT, _program->_geometryVerticesOut );
             _extensions->glProgramParameteri( _glProgramHandle, GL_GEOMETRY_INPUT_TYPE_EXT, _program->_geometryInputType );
@@ -678,7 +678,7 @@ void Program::PerContextProgram::linkProgram(osg::State& state)
         }
     }
 
-    if (_extensions->isUniformBufferObjectSupported())
+    if (_extensions->isUniformBufferObjectSupported)
     {
         GLuint activeUniformBlocks = 0;
         GLsizei maxBlockNameLen = 0;
@@ -779,7 +779,7 @@ void Program::PerContextProgram::linkProgram(osg::State& state)
 
     // print atomic counter
 
-    if (_extensions->isShaderAtomicCounterSupported() && !atomicCounterMap.empty())
+    if (_extensions->isShaderAtomicCountersSupported && !atomicCounterMap.empty())
     {
         std::vector<GLint> bufferIndex( atomicCounterMap.size(), 0 );
         std::vector<GLuint> uniformIndex;

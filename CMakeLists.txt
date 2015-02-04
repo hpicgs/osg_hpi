@@ -22,25 +22,30 @@ if(COMMAND cmake_policy)
 
     # tell CMake to prefer CMake's own CMake modules when available
     # only available from cmake-2.8.4
-    if(${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} GREATER 3)
+    if(${CMAKE_MAJOR_VERSION} GREATER 2 OR
+        (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} GREATER 8) OR
+        (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} GREATER 3))
         cmake_policy(SET CMP0017 NEW)
     endif()
 
     # cmake-2.6.1 introduces policy cmp0008 decide how to treat full path libraries that do not appear to be valid library file names
     # quote from cvslog "Such libraries worked by accident in the VS IDE and Xcode generators in CMake 2.4 and below."
-    if(${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} GREATER 4 AND ${CMAKE_PATCH_VERSION} GREATER 0)
+    if(${CMAKE_MAJOR_VERSION} GREATER 2 OR
+        (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} GREATER 6) OR
+        (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} EQUAL 6 AND ${CMAKE_PATCH_VERSION} GREATER 0))
         cmake_policy(SET CMP0008 OLD)
     endif()
 
     # disable autolinking to qtmain as we have our own main() functions (new in Qt 5.1)
-    if((${CMAKE_MAJOR_VERSION} EQUAL 2 OR ${CMAKE_MAJOR_VERSION} GREATER 2) AND
-       (${CMAKE_MINOR_VERSION} EQUAL 8 OR ${CMAKE_MINOR_VERSION} GREATER 8) AND
-        ${CMAKE_PATCH_VERSION} GREATER 10)
+    if(${CMAKE_MAJOR_VERSION} GREATER 2 OR
+        (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} GREATER 8) OR
+        (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} GREATER 9))
         cmake_policy(SET CMP0020 OLD)
     endif()
     # nicer version check - but needs at least CMake 2.6.2? Worth upgrading the requirements?
     #if("${CMAKE_VERSION}" VERSION_GREATER 2.8.10)
-
+    # or even easier (available in cmake-2.6)
+    #if(POLICY CMPxyzw)
 
 endif()
 
@@ -80,77 +85,15 @@ SET(OpenThreads_SOURCE_DIR ${OpenSceneGraph_SOURCE_DIR})
 # Maybe this can be used override existing behavior if needed?
 SET(CMAKE_MODULE_PATH "${OpenSceneGraph_SOURCE_DIR}/CMakeModules;${CMAKE_MODULE_PATH}")
 
-## Option to enable Android build using AndroidNDK
-OPTION(OSG_BUILD_PLATFORM_ANDROID OFF)
-IF(OSG_BUILD_PLATFORM_ANDROID)
+# Change the default build type to Release
+IF(NOT CMAKE_BUILD_TYPE)
+    SET(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel." FORCE)
+ENDIF(NOT CMAKE_BUILD_TYPE)
 
-    CMAKE_MINIMUM_REQUIRED(VERSION 2.8.0 FATAL_ERROR)
 
+IF(ANDROID)
     INCLUDE(OsgAndroidMacroUtils)
-    SET(ANDROID TRUE)
-    IF(NOT ANDROID_PLATFORM)
-        MESSAGE("Warning Android Platform version NOT defined, Default selected version: 5")
-        SET(ANDROID_PLATFORM 5)
-    ENDIF()
-    IF(NOT ANDROID_ABI)
-        MESSAGE("Warning Android ABI version NOT defined, Default selection: armeabi armeabi-v7a")
-        SET(ANDROID_ABI "armeabi armeabi-v7a")
-    ENDIF()
-    IF(NOT ANDROID_STL)
-        MESSAGE("Warning Android STL NOT defined, Default selection: gnustl_static")
-        SET(ANDROID_STL "gnustl_static")
-    ENDIF()
-    IF(ANDROID_DEBUG)
-        MESSAGE("Warning Android Build is in debug mode")
-        SET(ANDROID_RELEASE_OPTIM "debug")
-    ELSE()
-        MESSAGE("Warning Android Build is in release mode")
-        SET(ANDROID_RELEASE_OPTIM "release")
-    ENDIF()
-    IF(ANDROID_NEON)
-        MESSAGE("Warning Android NEON optimizations enabled, this will not be available on all armeabi-v7a devices ie. Tegra2")
-        SET(ANDROID_OPTIM_NEON true)
-    ELSE()
-        SET(ANDROID_OPTIM_NEON false)
-    ENDIF()
-    IF(ANDROID_ARM32)
-        MESSAGE("Warning ARM 32bit instruction set will be used")
-        SET(ANDROID_OPTIM_ARM32 true)
-    ELSE()
-        SET(ANDROID_OPTIM_ARM32 false)
-    ENDIF()
-
-    FIND_PACKAGE(AndroidNDK REQUIRED)
-
-    SET(OSG_ANDROID_TEMPLATES "${CMAKE_SOURCE_DIR}/PlatformSpecifics/Android")
-
-    SET(J  "4" CACHE STRING "how many processes for make -j <J>")
-
-    ADD_CUSTOM_COMMAND(
-        OUTPUT    Android-OpenSceneGraph
-        DEPENDS   ${CMAKE_BINARY_DIR}/Android.mk
-        COMMAND   "${ANDROID_NDK}/ndk-build"
-        ARGS      --directory=${CMAKE_BINARY_DIR} NDK_APPLICATION_MK=Application.mk -j${J} NDK_LOG=1
-    )
-
-    ADD_CUSTOM_TARGET(ndk ALL echo
-          DEPENDS Android-OpenSceneGraph
-    )
-    install(DIRECTORY include/ DESTINATION include/
-        PATTERN ".svn" EXCLUDE
-    )
-    install(DIRECTORY ${CMAKE_BINARY_DIR}/include/ DESTINATION include/
-    )
-    install(DIRECTORY ${CMAKE_BINARY_DIR}/obj/ DESTINATION obj/
-        PATTERN ".svn" EXCLUDE
-        PATTERN "objs" EXCLUDE
-    )
-
-    ADD_DEFINITIONS(-DANDROID)
-
 ENDIF()
-
-
 
 # Okay, here's the problem: On some platforms, linking against OpenThreads
 # is not enough and explicit linking to the underlying thread library
@@ -234,8 +177,12 @@ IF(APPLE)
     EXECUTE_PROCESS(COMMAND "/usr/bin/sw_vers" "-productVersion"
                     OUTPUT_VARIABLE OSG_OSX_SDK_NAME
                     OUTPUT_STRIP_TRAILING_WHITESPACE)
-    STRING(SUBSTRING "${OSG_OSX_SDK_NAME}" 0 4 OSG_OSX_SDK_NAME)
-    SET(OSG_OSX_SDK_NAME "macosx${OSG_OSX_SDK_NAME}")
+    STRING(REPLACE "." ";" MACOS_VERSION_LIST ${OSG_OSX_SDK_NAME})
+    LIST(GET MACOS_VERSION_LIST 0 MACOS_VERSION_MAJOR)
+    LIST(GET MACOS_VERSION_LIST 1 MACOS_VERSION_MINOR)
+    LIST(GET MACOS_VERSION_LIST 2 MACOS_VERSION_PATCH)
+
+    SET(OSG_OSX_SDK_NAME "macosx${MACOS_VERSION_MAJOR}.${MACOS_VERSION_MINOR}")
 
     # Trying to get CMake to generate an XCode IPhone project, current efforts are to get iphoneos sdk 3.1 working
     # Added option which needs manually setting to select the IPhone SDK for building. We can only have one of the below
@@ -595,7 +542,23 @@ ELSE()
     SET(OSG_GLES2_FEATURES "false")
 ENDIF()
 
-
+IF(ANDROID)
+    IF(OSG_GLES1_AVAILABLE)
+        FIND_PATH(OPENGL_INCLUDE_DIR GLES/gl.h
+              PATHS
+              ${ANDROID_SYSROOT}/usr/include)
+        FIND_LIBRARY(OPENGL_gl_LIBRARY  GLESv1_CM
+                 PATHS
+                     ${ANDROID_SYSROOT}/usr/lib)
+    ELSEIF(OSG_GLES2_AVAILABLE)
+        FIND_PATH(OPENGL_INCLUDE_DIR GLES2/gl2.h
+              PATHS
+              ${ANDROID_SYSROOT}/usr/include)
+        FIND_LIBRARY(OPENGL_gl_LIBRARY  GLESv2
+                 PATHS
+                     ${ANDROID_SYSROOT}/usr/lib)
+    ENDIF()
+ENDIF()
 
 
 ################################################################################
@@ -615,7 +578,7 @@ CONFIGURE_FILE("${CMAKE_CURRENT_SOURCE_DIR}/src/osg/GL.in"
 ################################################################################
 # Set Vertsion header file
 
-SET(OPENSCENEGRAPH_VERSION_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/include/osg/Version")
+SET(OPENSCENEGRAPH_VERSION_HEADER "${PROJECT_BINARY_DIR}/include/osg/Version")
 CONFIGURE_FILE("${CMAKE_CURRENT_SOURCE_DIR}/src/osg/Version.in"
                "${OPENSCENEGRAPH_VERSION_HEADER}")
 
@@ -666,7 +629,10 @@ ELSE()
     FIND_PACKAGE(LibVNCServer)
     FIND_PACKAGE(OurDCMTK)
     FIND_PACKAGE(FFmpeg)
+    FIND_PACKAGE(GStreamer COMPONENTS gstreamer-app gstreamer-pbutils)
+    FIND_PACKAGE(GLIB COMPONENTS gobject)
     FIND_PACKAGE(DirectShow)
+    FIND_PACKAGE(SDL2)
     FIND_PACKAGE(SDL)
     FIND_PACKAGE(Poppler-glib)
     FIND_PACKAGE(RSVG)
@@ -677,6 +643,9 @@ ELSE()
         FIND_PACKAGE(Asio)
     ENDIF()
     FIND_PACKAGE(ZeroConf)
+
+    FIND_PACKAGE(Boost) # used by LIBLAS
+    FIND_PACKAGE(LIBLAS)
 
     IF (NOT(OSG_USE_LOCAL_LUA_SOURCE))
         FIND_PACKAGE(Lua52)
@@ -1094,7 +1063,7 @@ IF(APPLE AND NOT ANDROID)
         # FORCE is used because the options are not reflected in the UI otherwise.
         # Seems like a good place to add version specific compiler flags too.
         IF(NOT OSG_CONFIG_HAS_BEEN_RUN_BEFORE)
-            IF(${OSG_OSX_SDK_NAME} STREQUAL "macosx10.8" OR ${OSG_OSX_SDK_NAME} STREQUAL "macosx10.9")
+            IF(${OSG_OSX_SDK_NAME} STREQUAL "macosx10.8" OR ${OSG_OSX_SDK_NAME} STREQUAL "macosx10.9" OR ${OSG_OSX_SDK_NAME} STREQUAL "macosx10.10")
                 SET(OSG_DEFAULT_IMAGE_PLUGIN_FOR_OSX "imageio" CACHE STRING "Forced imageio default image plugin for OSX" FORCE)
                 # 64 Bit Works, i386,ppc is not supported any more
                 SET(CMAKE_OSX_ARCHITECTURES "x86_64" CACHE STRING "Build architectures for OSX" FORCE)
@@ -1331,10 +1300,4 @@ ADD_CUSTOM_TARGET(uninstall
   "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake")
 
 #
-IF(ANDROID)
-    message(STATUS "Creating Android Makefile Master files" )
-    configure_file("${OSG_ANDROID_TEMPLATES}/Android.mk.master.in" "${CMAKE_BINARY_DIR}/Android.mk")
-    configure_file("${OSG_ANDROID_TEMPLATES}/Application.mk.master.in" "${CMAKE_BINARY_DIR}/Application.mk")
-    configure_file("${OSG_ANDROID_TEMPLATES}/AndroidManifest.xml.master.in" "${CMAKE_BINARY_DIR}/AndroidManifest.xml")
-ENDIF(ANDROID)
 
