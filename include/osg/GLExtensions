@@ -167,6 +167,7 @@ class OSG_EXPORT GLExtensions : public osg::Referenced
         bool isShaderAtomicCountersSupported;
         bool isRectangleSupported;
         bool isCubeMapSupported;
+        bool isClipControlSupported;
 
         void (GL_APIENTRY * glDrawBuffers)(GLsizei n, const GLenum *bufs);
         void (GL_APIENTRY * glAttachShader)(GLuint program, GLuint shader);
@@ -267,6 +268,7 @@ class OSG_EXPORT GLExtensions : public osg::Referenced
         void (GL_APIENTRY * glUniformMatrix4x2fv)( GLint location, GLsizei count, GLboolean transpose, const GLfloat* value );
         void (GL_APIENTRY * glUniformMatrix3x4fv)( GLint location, GLsizei count, GLboolean transpose, const GLfloat* value );
         void (GL_APIENTRY * glUniformMatrix4x3fv)( GLint location, GLsizei count, GLboolean transpose, const GLfloat* value );
+        void (GL_APIENTRY * glClipControl)( GLenum origin, GLenum depthMode );
         void (GL_APIENTRY * glProgramParameteri)( GLuint program, GLenum pname, GLint value );
         void (GL_APIENTRY * glPatchParameteri)( GLenum pname, GLint value );
         void (GL_APIENTRY * glPatchParameterfv)( GLenum pname, const GLfloat* values );
@@ -315,6 +317,8 @@ class OSG_EXPORT GLExtensions : public osg::Referenced
         bool isBufferObjectSupported;
         bool isPBOSupported;
         bool isTBOSupported;
+        bool isVAOSupported;
+        bool isTransformFeedbackSupported;
 
         void (GL_APIENTRY * glGenBuffers) (GLsizei n, GLuint *buffers);
         void (GL_APIENTRY * glBindBuffer) (GLenum target, GLuint buffer);
@@ -598,6 +602,15 @@ class OSG_EXPORT GLExtensions : public osg::Referenced
         void (GL_APIENTRY * glGetTransformFeedbackiv) (GLuint xfb, GLenum pname, GLint *param);
         void (GL_APIENTRY * glGetTransformFeedbacki_v) (GLuint xfb, GLenum pname, GLuint index, GLint *param);
         void (GL_APIENTRY * glGetTransformFeedbacki64_v) (GLuint xfb, GLenum pname, GLuint index, GLint64 *param);
+
+        // Vertex Array Object
+        void (GL_APIENTRY * glDeleteVertexArrays) (GLsizei size,const GLuint *handles);
+        void (GL_APIENTRY * glGenVertexArrays) (GLsizei size, GLuint *handles);
+        GLboolean (GL_APIENTRY * glIsVertexArray) (GLuint handle);
+        void (GL_APIENTRY * glBindVertexArray) (GLuint handle);
+
+        // MultiDrawArrays
+        void (GL_APIENTRY * glMultiDrawArrays) (GLenum mode, const GLint * first, const GLsizei * count, GLsizei primcount);
 
 
 };

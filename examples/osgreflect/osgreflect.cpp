@@ -41,7 +41,7 @@
 // A simple demo demonstrating planar reflections using multiple renderings
 // of a subgraph, overriding of state attribures and use of the stencil buffer.
 //
-// The multipass system implemented here is a variation if Mark Kilgard's
+// The multipass system implemented here is a variation of Mark Kilgard's
 // paper "Improving Shadows and Reflections via the Stencil Buffer" which
 // can be found on the developer parts of the NVidia web site.
 //
@@ -52,7 +52,7 @@
 // world poking through the mirror to be seen in the final rendering and
 // also obscures the world correctly when on the reverse side of the mirror.
 // Although there is still some unresolved issue with the clip plane needing
-// to be flipped when looking at the reverse side of the mirror.  Niether
+// to be flipped when looking at the reverse side of the mirror.  Neither
 // of these issues are mentioned in the Mark's paper, but trip us up when
 // we apply them.
 
@@ -63,7 +63,7 @@ osg::StateSet* createMirrorTexturedState(const std::string& filename)
     dstate->setMode(GL_CULL_FACE,osg::StateAttribute::OFF|osg::StateAttribute::PROTECTED);
 
     // set up the texture.
-    osg::Image* image = osgDB::readImageFile(filename.c_str());
+    osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile(filename.c_str());
     if (image)
     {
         osg::Texture2D* texture = new osg::Texture2D;
@@ -322,7 +322,7 @@ osg::Node* createMirroredScene(osg::Node* model)
 //
 // create the viewer
 // load a model
-// decoate the model so it renders using a multipass stencil buffer technique for planar reflections.
+// decorate the model so it renders using a multipass stencil buffer technique for planar reflections.
 // release the viewer
 // run main loop.
 //
@@ -335,10 +335,10 @@ int main( int argc, char **argv )
     osgViewer::Viewer viewer;
 
     // read the scene from the list of file specified commandline args.
-    osg::ref_ptr<osg::Node> loadedModel = osgDB::readNodeFiles(arguments);
+    osg::ref_ptr<osg::Node> loadedModel = osgDB::readRefNodeFiles(arguments);
 
     // if not loaded assume no arguments passed in, try use default mode instead.
-    if (!loadedModel) loadedModel = osgDB::readNodeFile("cessna.osgt");
+    if (!loadedModel) loadedModel = osgDB::readRefNodeFile("cessna.osgt");
 
     // if no model has been successfully loaded report failure.
     if (!loadedModel)
@@ -350,11 +350,11 @@ int main( int argc, char **argv )
 
     // optimize the scene graph, remove redundant nodes and state etc.
     osgUtil::Optimizer optimizer;
-    optimizer.optimize(loadedModel.get());
+    optimizer.optimize(loadedModel);
 
     // add a transform with a callback to animate the loaded model.
     osg::ref_ptr<osg::MatrixTransform> loadedModelTransform = new osg::MatrixTransform;
-    loadedModelTransform->addChild(loadedModel.get());
+    loadedModelTransform->addChild(loadedModel);
 
     osg::ref_ptr<osg::NodeCallback> nc = new osg::AnimationPathCallback(loadedModelTransform->getBound().center(),osg::Vec3(0.0f,0.0f,1.0f),osg::inDegrees(45.0f));
     loadedModelTransform->setUpdateCallback(nc.get());
@@ -364,7 +364,7 @@ int main( int argc, char **argv )
     osg::ref_ptr<osg::Node> rootNode = createMirroredScene(loadedModelTransform.get());
 
     // set the scene to render
-    viewer.setSceneData(rootNode.get());
+    viewer.setSceneData(rootNode);
 
     // hint to tell viewer to request stencil buffer when setting up windows
     osg::DisplaySettings::instance()->setMinimumNumStencilBits(8);

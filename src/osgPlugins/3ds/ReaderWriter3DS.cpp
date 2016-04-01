@@ -193,7 +193,7 @@ protected:
         StateSetInfo(const StateSetInfo & v) : stateset(v.stateset), lib3dsmat(v.lib3dsmat) {}
         StateSetInfo & operator=(const StateSetInfo & v) { stateset=v.stateset; lib3dsmat=v.lib3dsmat; return *this; }
 
-        osg::StateSet * stateset;
+        osg::ref_ptr<osg::StateSet> stateset;
         Lib3dsMaterial * lib3dsmat;
     };
 
@@ -413,7 +413,7 @@ void ReaderWriter3DS::ReaderObject::addDrawableFromFace(osg::Geode * geode, Face
             if (drawable.valid())
             {
                 if (ssi.stateset)
-                    drawable->setStateSet(ssi.stateset);
+                    drawable->setStateSet(ssi.stateset.get());
                 geode->addDrawable(drawable.get());
             }
         }
@@ -426,7 +426,7 @@ void ReaderWriter3DS::ReaderObject::addDrawableFromFace(osg::Geode * geode, Face
         if (drawable.valid())
         {
             if (ssi.stateset)
-                drawable->setStateSet(ssi.stateset);
+                drawable->setStateSet(ssi.stateset.get());
             geode->addDrawable(drawable.get());
         }
     }
@@ -509,7 +509,7 @@ osg::Node* ReaderWriter3DS::ReaderObject::processNode(StateSetMap& drawStateMap,
     Lib3dsMesh * mesh = lib3ds_file_mesh_for_node(f,node);
     assert(!(mesh && !object));        // Node must be a LIB3DS_NODE_MESH_INSTANCE if a mesh exists
 
-    // Retreive LOCAL transform
+    // Retrieve LOCAL transform
     static const osg::Matrix::value_type MATRIX_EPSILON = 1e-10;
     osg::Matrix osgWorldToNodeMatrix( copyLib3dsMatrixToOsgMatrix(node->matrix) );
     osg::Matrix osgWorldToParentNodeMatrix;
@@ -624,7 +624,7 @@ osg::Node* ReaderWriter3DS::ReaderObject::processNode(StateSetMap& drawStateMap,
         }
         else
         {
-            // didnt use group for children, return a ptr directly to the Geode for this mesh
+            // didn't use group for children, return a ptr directly to the Geode for this mesh
             // there is no group node but may have a meshTransform node to hold the meshes matrix
             if (meshTransform) {
                 processMesh(drawStateMap,meshTransform,mesh,meshAppliedMatPtr);
@@ -900,7 +900,7 @@ bool isNumber(float x)
    not required, we must split the vertex if a different normal is required.
    For example if we are processing a cube mesh with no smoothing group
    made from 12 triangles and 8 vertices, the resultant mesh should have
-   24 vertices to accomodate the 3 different normals at each vertex.
+   24 vertices to accommodate the 3 different normals at each vertex.
   */
 static void addVertex(
     const Lib3dsMesh* mesh,
@@ -1249,6 +1249,23 @@ ReaderWriter3DS::StateSetInfo ReaderWriter3DS::ReaderObject::createStateSet(Lib3
     if (texture1_map)
     {
         if(textureTransparency) transparency = true;
+
+        // a diffuse texture can be transparent (e.g. a PNG with alpha channel)
+        if (texture1_map->getImage()->isImageTranslucent()) transparency = true;
+
+        // set UV scaling...
+        // to do: import offset and scaling
+        float uscale = mat->texture1_map.scale[0];
+        float vscale = mat->texture1_map.scale[1];
+        if (uscale != 1.0 || vscale != 1.0)
+        {
+            osg::ref_ptr<osg::TexMat> texmat = new osg::TexMat();
+            osg::Matrix uvScaling;
+            uvScaling.makeScale(osg::Vec3(uscale, vscale, 1.0));
+            texmat->setMatrix(uvScaling);
+            stateset->setTextureAttributeAndModes(unit, texmat.get(), osg::StateAttribute::ON);
+        }
+
         stateset->setTextureAttributeAndModes(unit, texture1_map, osg::StateAttribute::ON);
 
         double factor = mat->texture1_map.percent;
@@ -1294,28 +1311,92 @@ ReaderWriter3DS::StateSetInfo ReaderWriter3DS::ReaderObject::createStateSet(Lib3
     osg::Texture2D* opacity_map = createTexture(&(mat->opacity_map),"opacity_map", textureTransparency);
     if (opacity_map)
     {
-        if(opacity_map->getImage()->isImageTranslucent())
+        // set UV scaling...
+        // to do: import offset and scaling
+        float uscale = mat->opacity_map.scale[0];
+        float vscale = mat->opacity_map.scale[1];
+        if (uscale != 1.0 || vscale != 1.0)
         {
-            transparency = true;
-
-            stateset->setTextureAttributeAndModes(unit, opacity_map, osg::StateAttribute::ON);
-
-            double factor = mat->opacity_map.percent;
-
-                osg::TexEnvCombine* texenv = new osg::TexEnvCombine();
-                texenv->setCombine_Alpha(osg::TexEnvCombine::INTERPOLATE);
-                texenv->setSource0_Alpha(osg::TexEnvCombine::TEXTURE);
-                texenv->setSource1_Alpha(osg::TexEnvCombine::PREVIOUS);
-                texenv->setSource2_Alpha(osg::TexEnvCombine::CONSTANT);
-                texenv->setConstantColor(osg::Vec4(factor, factor, factor, 1.0 - factor));
-                stateset->setTextureAttributeAndModes(unit, texenv, osg::StateAttribute::ON);
-
-            unit++;
+            osg::ref_ptr<osg::TexMat> texmat = new osg::TexMat();
+            osg::Matrix uvScaling;
+            uvScaling.makeScale(osg::Vec3(uscale, vscale, 1.0));
+            texmat->setMatrix(uvScaling);
+            stateset->setTextureAttributeAndModes(unit, texmat.get(), osg::StateAttribute::ON);
         }
-        else
+
+        double factor = mat->opacity_map.percent;
+
+        // opacity map: add an alpha channel to the image to make opacity work
+        // (rebuid the image anyway if it must be rescaled according to factor)
+        if(!opacity_map->getImage()->isImageTranslucent() || factor<1.0)
         {
-            osg::notify(WARN)<<"The plugin does not support images without alpha channel for opacity"<<std::endl;
+            osg::notify(WARN)<<"Image without alpha channel for opacity. An extra alpha channel will be added."<<std::endl;
+            double one_minus_factor = 1.0 - factor;
+            osg::ref_ptr<osg::Image> osg_image = opacity_map->getImage();
+            int nc = (int)osg_image->getPixelSizeInBits()/8;
+            unsigned char* orig_img_data = (unsigned char*)osg_image->getDataPointer();
+            int n = osg_image->s()*osg_image->t()*4;
+            unsigned char* img_data = new unsigned char[n];
+            // rebuild the texture with alpha channel (rescale according to map amount)
+            for (int i=0, j=0; i<n; i+=4, j+=nc)
+            {
+                img_data[i] = img_data[i+1] = img_data[i+2] = img_data[i+3] = (unsigned char)(one_minus_factor + orig_img_data[j]*factor);
+            }
+            osg_image->setImage(osg_image->s(),osg_image->t(),osg_image->r(), GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, img_data, osg::Image::USE_NEW_DELETE);
+            opacity_map->setImage(osg_image.get());
         }
+
+        transparency = true;
+
+        stateset->setTextureAttributeAndModes(unit, opacity_map, osg::StateAttribute::ON);
+
+        // set up and enable the texture combiner
+        osg::TexEnvCombine* texenv = new osg::TexEnvCombine();
+
+        texenv->setCombine_RGB(osg::TexEnvCombine::REPLACE);
+        texenv->setSource0_RGB(osg::TexEnvCombine::PREVIOUS);
+        texenv->setOperand0_RGB(osg::TexEnvCombine::SRC_COLOR);
+
+        texenv->setCombine_Alpha(osg::TexEnvCombine::MODULATE);
+        texenv->setSource0_Alpha(osg::TexEnvCombine::TEXTURE);
+        texenv->setOperand0_Alpha(osg::TexEnvCombine::SRC_ALPHA);
+        texenv->setSource1_Alpha(osg::TexEnvCombine::PRIMARY_COLOR);
+        texenv->setOperand1_Alpha(osg::TexEnvCombine::SRC_ALPHA);
+
+        stateset->setTextureAttributeAndModes(unit, texenv, osg::StateAttribute::ON);
+
+        osg::TexEnv* tenv = new osg::TexEnv();
+        tenv->setMode(osg::TexEnv::MODULATE);
+        stateset->setTextureAttributeAndModes(unit, tenv, osg::StateAttribute::ON);
+
+        unit++;
+    }
+
+    // derived from code in src/osgPlugins/fbx/fbxRMesh.cpp
+    osg::ref_ptr<osg::Texture> reflection_map = createTexture(&(mat->reflection_map),"reflection_map",textureTransparency);
+    if (reflection_map)
+    {
+        stateset->setTextureAttributeAndModes(unit, reflection_map.get(), osg::StateAttribute::ON);
+
+        // setup spherical map...
+        osg::ref_ptr<osg::TexGen> texgen = new osg::TexGen();
+        texgen->setMode(osg::TexGen::SPHERE_MAP);
+        stateset->setTextureAttributeAndModes(unit, texgen.get(), osg::StateAttribute::ON);
+
+        // setup combiner for factor...
+        double factor = mat->reflection_map.percent;
+        osg::ref_ptr<osg::TexEnvCombine> texenv = new osg::TexEnvCombine();
+        texenv->setCombine_RGB(osg::TexEnvCombine::INTERPOLATE);
+        texenv->setSource0_RGB(osg::TexEnvCombine::TEXTURE);
+        texenv->setSource1_RGB(osg::TexEnvCombine::PREVIOUS);
+        texenv->setSource2_RGB(osg::TexEnvCombine::CONSTANT);
+        texenv->setCombine_Alpha(osg::TexEnvCombine::REPLACE);
+        texenv->setSource0_Alpha(osg::TexEnvCombine::CONSTANT);
+        texenv->setOperand0_Alpha(osg::TexEnvCombine::SRC_ALPHA);
+        texenv->setConstantColor(osg::Vec4(factor, factor, factor, alpha));
+
+        stateset->setTextureAttributeAndModes(unit, texenv.get(), osg::StateAttribute::ON);
+        unit++;
     }
 
     // material
@@ -1337,7 +1418,7 @@ ReaderWriter3DS::StateSetInfo ReaderWriter3DS::ReaderObject::createStateSet(Lib3
     // Set back face culling state if single sided material applied.
     // This seems like a reasonable assumption given that the backface cull option
     // doesn't appear to be encoded directly in the 3DS format, and also because
-    // it mirrors the effect of code in 3DS writer which uses the the face culling
+    // it mirrors the effect of code in 3DS writer which uses the face culling
     // attribute to determine the state of the 'two_sided' 3DS material being written.
     if (!mat->two_sided)
     {

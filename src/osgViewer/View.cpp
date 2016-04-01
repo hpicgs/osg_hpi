@@ -300,7 +300,7 @@ void View::setSceneData(osg::Node* node)
         }
         else
         {
-            OSG_INFO<<"View::setSceneData() Reusing exisitng scene"<<_scene.get()<<std::endl;
+            OSG_INFO<<"View::setSceneData() Reusing existing scene"<<_scene.get()<<std::endl;
         }
 
         _scene->setSceneData(node);
@@ -656,7 +656,7 @@ Cameras getActiveCameras(osg::View& view)
 
 }
 
-bool View::setUpDepthPartitionForCamera(osg::Camera* cameraToPartition, DepthPartitionSettings* incomming_dps)
+bool View::setUpDepthPartitionForCamera(osg::Camera* cameraToPartition, DepthPartitionSettings* incoming_dps)
 {
     osg::ref_ptr<osg::GraphicsContext> context = cameraToPartition->getGraphicsContext();
     if (!context) return false;
@@ -664,7 +664,7 @@ bool View::setUpDepthPartitionForCamera(osg::Camera* cameraToPartition, DepthPar
     osg::ref_ptr<osg::Viewport> viewport = cameraToPartition->getViewport();
     if (!viewport) return false;
 
-    osg::ref_ptr<DepthPartitionSettings> dps = incomming_dps;
+    osg::ref_ptr<DepthPartitionSettings> dps = incoming_dps;
     if (!dps) dps = new DepthPartitionSettings;
 
     bool useMastersSceneData = true;
@@ -1014,7 +1014,7 @@ bool View::computeIntersections(const osgGA::GUIEventAdapter& ea, osgUtil::LineS
     if (ea.getNumPointerData()>=1)
     {
         const osgGA::PointerData* pd = ea.getPointerData(ea.getNumPointerData()-1);
-        const osg::Camera* camera = dynamic_cast<const osg::Camera*>(pd->object.get());
+        const osg::Camera* camera = pd->object.valid() ? pd->object->asCamera() : 0;
         if (camera)
         {
             return computeIntersections(camera, osgUtil::Intersector::PROJECTION, pd->getXnormalized(), pd->getYnormalized(), intersections, traversalMask);
@@ -1030,7 +1030,7 @@ bool View::computeIntersections(const osgGA::GUIEventAdapter& ea, const osg::Nod
     if (ea.getNumPointerData()>=1)
     {
         const osgGA::PointerData* pd = ea.getPointerData(ea.getNumPointerData()-1);
-        const osg::Camera* camera = dynamic_cast<const osg::Camera*>(pd->object.get());
+        const osg::Camera* camera = pd->object.valid() ? pd->object->asCamera() : 0;
         if (camera)
         {
             return computeIntersections(camera, osgUtil::Intersector::PROJECTION, pd->getXnormalized(), pd->getYnormalized(), nodePath, intersections, traversalMask);
@@ -1311,23 +1311,6 @@ static const GLubyte patternVertEven[] = {
     0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
     0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
 
-static const GLubyte patternVertOdd[] = {
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
-    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
 
 static const GLubyte patternHorzEven[] = {
     0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,

@@ -14,8 +14,8 @@
 #In OSG ffmpeg plugin, we used "#include <header.h>" for compatibility with old version of ffmpeg
 #With the new version of FFmpeg, a file named "time.h" was added that breaks compatability with the old version of ffmpeg.
 
-#We have to search the path which contain the header.h (usefull for old version)
-#and search the path which contain the libname/header.h (usefull for new version)
+#We have to search the path which contain the header.h (useful for old version)
+#and search the path which contain the libname/header.h (useful for new version)
 
 #Then we need to include ${FFMPEG_libname_INCLUDE_DIRS} (in old version case, use by ffmpeg header and osg plugin code)
 #                                                       (in new version case, use by ffmpeg header) 
@@ -129,11 +129,14 @@ FFMPEG_FIND(LIBAVFORMAT avformat avformat.h)
 FFMPEG_FIND(LIBAVDEVICE avdevice avdevice.h)
 FFMPEG_FIND(LIBAVCODEC  avcodec  avcodec.h)
 FFMPEG_FIND(LIBAVUTIL   avutil   avutil.h)
+FFMPEG_FIND(LIBSWRESAMPLE   swresample   swresample.h)
+FFMPEG_FIND(LIBAVRESAMPLE   avresample   avresample.h)
 FFMPEG_FIND(LIBSWSCALE  swscale  swscale.h)  # not sure about the header to look for here.
 
 SET(FFMPEG_FOUND "NO")
 # Note we don't check FFMPEG_LIBSWSCALE_FOUND here, it's optional.
-IF   (FFMPEG_LIBAVFORMAT_FOUND AND FFMPEG_LIBAVDEVICE_FOUND AND FFMPEG_LIBAVCODEC_FOUND AND FFMPEG_LIBAVUTIL_FOUND AND STDINT_OK)
+IF   (FFMPEG_LIBAVFORMAT_FOUND AND FFMPEG_LIBAVDEVICE_FOUND AND FFMPEG_LIBAVCODEC_FOUND AND FFMPEG_LIBAVUTIL_FOUND AND STDINT_OK
+      AND ( FFMPEG_LIBSWRESAMPLE_FOUND OR FFMPEG_LIBAVRESAMPLE_FOUND ) )
 
     SET(FFMPEG_FOUND "YES")
 

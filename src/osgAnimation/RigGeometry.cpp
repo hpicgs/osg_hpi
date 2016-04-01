@@ -24,7 +24,7 @@ osg::BoundingBox RigComputeBoundingBoxCallback::computeBound(const osg::Drawable
 {
     const osgAnimation::RigGeometry& rig = dynamic_cast<const osgAnimation::RigGeometry&>(drawable);
 
-    // if a valid inital bounding box is set we use it without asking more
+    // if a valid initial bounding box is set we use it without asking more
     if (rig.getInitialBound().valid())
         return rig.getInitialBound();
 
@@ -53,7 +53,7 @@ RigGeometry::RigGeometry()
 {
     _supportsDisplayList = false;
     setUseVertexBufferObjects(true);
-    setUpdateCallback(new UpdateVertex);
+    setUpdateCallback(new UpdateRigGeometry);
     setDataVariance(osg::Object::DYNAMIC);
     _needToComputeMatrix = true;
     _matrixFromSkeletonToGeometry = _invMatrixFromSkeletonToGeometry = osg::Matrix::identity();

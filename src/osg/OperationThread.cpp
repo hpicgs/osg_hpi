@@ -22,6 +22,7 @@ using namespace OpenThreads;
 struct BlockOperation : public Operation, public Block
 {
     BlockOperation():
+        osg::Referenced(true),
         Operation("Block",false)
     {
         reset();
@@ -293,7 +294,7 @@ void OperationThread::setOperationQueue(OperationQueue* opq)
 
 void OperationThread::setDone(bool done)
 {
-    unsigned d = done?0:1;
+    unsigned d = done?1:0;
     if (_done==d) return;
 
     _done.exchange(d);
@@ -339,7 +340,7 @@ int OperationThread::cancel()
             if (_currentOperation.valid()) _currentOperation->release();
         }
 
-        // then wait for the the thread to stop running.
+        // then wait for the thread to stop running.
         while(isRunning())
         {
 

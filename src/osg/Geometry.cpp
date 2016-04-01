@@ -62,13 +62,14 @@ Geometry::Geometry(const Geometry& geometry,const CopyOp& copyop):
         _vertexAttribList.push_back(copyop(vitr->get()));
     }
 
-    if ((copyop.getCopyFlags() & osg::CopyOp::DEEP_COPY_ARRAYS))
+    if ((copyop.getCopyFlags() & osg::CopyOp::DEEP_COPY_ARRAYS) || (copyop.getCopyFlags() & osg::CopyOp::DEEP_COPY_PRIMITIVES))
     {
         if (_useVertexBufferObjects)
         {
             // copying of arrays doesn't set up buffer objects so we'll need to force
-            // Geometry to assign these, we'll do this by switching off VBO's then renabling them.
-            setUseVertexBufferObjects(false);
+            // Geometry to assign these, we'll do this by changing the cached value to false then re-enabling.
+            // note do not use setUseVertexBufferObjects(false) as it might modify Arrays that we have not deep-copied.
+            _useVertexBufferObjects = false;
             setUseVertexBufferObjects(true);
         }
     }
@@ -201,7 +202,7 @@ void Geometry::setTexCoordArrayList(const ArrayList& arrayList)
             itr != _texCoordList.end();
             ++itr)
         {
-            addVertexBufferObjectIfRequired(itr->get());
+           if (itr->get()) addVertexBufferObjectIfRequired(itr->get());
         }
     }
 }
@@ -244,7 +245,7 @@ void Geometry::setVertexAttribArrayList(const ArrayList& arrayList)
             itr != _vertexAttribList.end();
             ++itr)
         {
-            addVertexBufferObjectIfRequired(itr->get());
+            if (itr->get()) addVertexBufferObjectIfRequired(itr->get());
         }
     }
 }
@@ -261,7 +262,8 @@ bool Geometry::addPrimitiveSet(PrimitiveSet* primitiveset)
         dirtyBound();
         return true;
     }
-    OSG_WARN<<"Warning: invalid index i or primitiveset passed to osg::Geometry::addPrimitiveSet(i,primitiveset), ignoring call."<<std::endl;
+
+    OSG_WARN<<"Warning: invalid primitiveset passed to osg::Geometry::addPrimitiveSet(i, primitiveset), ignoring call."<<std::endl;
     return false;
 }
 
@@ -850,49 +852,6 @@ void Geometry::drawPrimitivesImplementation(RenderInfo& renderInfo) const
     }
 }
 
-class AttributeFunctorArrayVisitor : public ArrayVisitor
-{
-    public:
-
-        AttributeFunctorArrayVisitor(Drawable::AttributeFunctor& af):
-            _af(af),
-            _type(0) {}
-
-        virtual ~AttributeFunctorArrayVisitor() {}
-
-        virtual void apply(ByteArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(ShortArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(IntArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(UByteArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(UShortArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(UIntArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(Vec4ubArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(FloatArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(Vec2Array& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(Vec3Array& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(Vec4Array& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(DoubleArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(Vec2dArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(Vec3dArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(Vec4dArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-
-
-        inline void applyArray(Drawable::AttributeType type,Array* array)
-        {
-            if (array)
-            {
-                _type = type;
-                array->accept(*this);
-            }
-        }
-
-    protected:
-
-        AttributeFunctorArrayVisitor& operator = (const AttributeFunctorArrayVisitor&) { return *this; }
-        Drawable::AttributeFunctor&   _af;
-        Drawable::AttributeType       _type;
-};
-
 void Geometry::accept(AttributeFunctor& af)
 {
     AttributeFunctorArrayVisitor afav(af);
@@ -923,49 +882,6 @@ void Geometry::accept(AttributeFunctor& af)
     }
 }
 
-class ConstAttributeFunctorArrayVisitor : public ConstArrayVisitor
-{
-    public:
-
-        ConstAttributeFunctorArrayVisitor(Drawable::ConstAttributeFunctor& af):
-            _af(af),
-            _type(0) {}
-
-        virtual ~ConstAttributeFunctorArrayVisitor() {}
-
-        virtual void apply(const ByteArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const ShortArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const IntArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const UByteArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const UShortArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const UIntArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const Vec4ubArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const FloatArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const Vec2Array& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const Vec3Array& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const Vec4Array& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const DoubleArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const Vec2dArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const Vec3dArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-        virtual void apply(const Vec4dArray& array) {  if (!array.empty()) _af.apply(_type,array.size(),&(array.front())); }
-
-
-        inline void applyArray(Drawable::AttributeType type,const Array* array)
-        {
-            if (array)
-            {
-                _type = type;
-                array->accept(*this);
-            }
-        }
-
-protected:
-
-        ConstAttributeFunctorArrayVisitor& operator = (const ConstAttributeFunctorArrayVisitor&) { return *this; }
-
-        Drawable::ConstAttributeFunctor&    _af;
-        Drawable::AttributeType             _type;
-};
 
 void Geometry::accept(ConstAttributeFunctor& af) const
 {
@@ -1127,7 +1043,7 @@ Geometry* osg::createTexturedQuadGeometry(const Vec3& corner,const Vec3& widthVe
     geom->setNormalArray(normals, osg::Array::BIND_OVERALL);
 
 
-#if defined(OSG_GLES1_AVAILABLE) || !defined(OSG_GLES2_AVAILABLE)
+#if defined(OSG_GLES1_AVAILABLE) || defined(OSG_GLES2_AVAILABLE)
     DrawElementsUByte* elems = new DrawElementsUByte(PrimitiveSet::TRIANGLES);
     elems->push_back(0);
     elems->push_back(1);

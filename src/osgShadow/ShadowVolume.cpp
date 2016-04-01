@@ -53,6 +53,26 @@ ShadowVolume::~ShadowVolume()
 {
 }
 
+void ShadowVolume::resizeGLObjectBuffers(unsigned int maxSize)
+{
+    osg::resizeGLObjectBuffers(_occluder, maxSize);
+    osg::resizeGLObjectBuffers(_shadowVolume, maxSize);
+    osg::resizeGLObjectBuffers(_ss1, maxSize);
+    osg::resizeGLObjectBuffers(_mainShadowStateSet, maxSize);
+    osg::resizeGLObjectBuffers(_shadowVolumeStateSet, maxSize);
+    osg::resizeGLObjectBuffers(_shadowedSceneStateSet, maxSize);
+}
+
+void ShadowVolume::releaseGLObjects(osg::State* state) const
+{
+    osg::releaseGLObjects(_occluder, state);
+    osg::releaseGLObjects(_shadowVolume, state);
+    osg::releaseGLObjects(_ss1, state);
+    osg::releaseGLObjects(_mainShadowStateSet, state);
+    osg::releaseGLObjects(_shadowVolumeStateSet, state);
+    osg::releaseGLObjects(_shadowedSceneStateSet, state);
+}
+
 void ShadowVolume::setDrawMode(osgShadow::ShadowVolumeGeometry::DrawMode drawMode)
 {
     if (_drawMode == drawMode) return;
@@ -111,7 +131,7 @@ void ShadowVolume::init()
     }
     else
     {
-        OSG_NOTICE<<"STENCIL_TWO_PASSES selecteted"<<std::endl;
+        OSG_NOTICE<<"STENCIL_TWO_PASSES selected"<<std::endl;
 
         osg::StateSet* ss_sv1 = geode->getOrCreateStateSet();
         ss_sv1->setRenderBinDetails(shadowVolumeBin, "RenderBin");
@@ -351,6 +371,5 @@ void ShadowVolume::cull(osgUtil::CullVisitor& cv)
 
 void ShadowVolume::cleanSceneGraph()
 {
-    OSG_NOTICE<<className()<<"::cleanSceneGraph()) not implemened yet, but almost."<<std::endl;
 }
 

@@ -425,6 +425,8 @@ GLenum Image::computeFormatDataType(GLenum pixelFormat)
 {
     switch (pixelFormat)
     {
+        case GL_R32F:
+        case GL_RG32F:
         case GL_LUMINANCE32F_ARB:
         case GL_LUMINANCE16F_ARB:
         case GL_LUMINANCE_ALPHA32F_ARB:
@@ -466,6 +468,8 @@ GLenum Image::computeFormatDataType(GLenum pixelFormat)
 
         case GL_RGBA:
         case GL_RGB:
+        case GL_RED:
+        case GL_RG:
         case GL_LUMINANCE:
         case GL_LUMINANCE_ALPHA:
         case GL_ALPHA: return GL_UNSIGNED_BYTE;
@@ -525,6 +529,9 @@ unsigned int Image::computeNumComponents(GLenum pixelFormat)
         case(GL_ALPHA32UI_EXT): return 1;
         case(GL_ALPHA16F_ARB): return 1;
         case(GL_ALPHA32F_ARB): return 1;
+        case(GL_R32F): return 1;
+        case(GL_RG): return 2;
+        case(GL_RG32F): return 2;
         case(GL_RGB): return 3;
         case(GL_BGR): return 3;
         case(GL_RGB8I_EXT): return 3;
@@ -638,7 +645,7 @@ unsigned int Image::computePixelSizeInBits(GLenum format,GLenum type)
 
     // note, haven't yet added proper handling of the ARB GL_COMPRESSRED_* pathways
     // yet, no clear size for these since its probably implementation dependent
-    // which raises the question of how to actually querry for these sizes...
+    // which raises the question of how to actually query for these sizes...
     // will need to revisit this issue, for now just report an error.
     // this is possible a bit of mute point though as since the ARB compressed formats
     // arn't yet used for storing images to disk, so its likely that users wont have
@@ -833,7 +840,11 @@ int Image::computeNumberOfMipmapLevels(int s,int t, int r)
 {
     int w = maximum(s, t);
     w = maximum(w, r);
-    return 1 + static_cast<int>(floor(logf(w)/logf(2.0f)));
+
+    int n = 0;
+    while (w >>= 1)
+        ++n;
+    return n+1;
 }
 
 bool Image::isCompressed() const
@@ -1141,6 +1152,13 @@ void Image::readImageFromCurrentTexture(unsigned int contextID, bool copyMipMaps
     else if (textureMode==GL_TEXTURE_2D_ARRAY_EXT)
     {
         if (extensions->isCompressedTexImage3DSupported())
+        {
+            glGetTexLevelParameteriv(textureMode, 0, GL_TEXTURE_COMPRESSED_ARB,&compressed);
+        }
+    }
+    else if(bindingCubeMap)
+    {
+        if (extensions->isCompressedTexImage2DSupported())
         {
             glGetTexLevelParameteriv(textureMode, 0, GL_TEXTURE_COMPRESSED_ARB,&compressed);
         }
@@ -1551,16 +1569,18 @@ void Image::flipVertical()
             {
                 if (!dxtc_tool::VerticalFlip(s,t,_pixelFormat,_data+_mipmapData[i]))
                 {
-                    OSG_NOTICE << "Notice Image::flipVertical(): Vertical flip do not succeed" << std::endl;
+                    OSG_NOTICE << "Notice Image::flipVertical(): Vertical flip did not succeed" << std::endl;
                 }
             }
             else
             {
-                // its not a compressed image, so implement flip oursleves.
+                // it's not a compressed image, so implement flip ourselves.
+                unsigned int mipRowSize = computeRowWidthInBytes(s, _pixelFormat, _dataType, _packing);
+                unsigned int mipRowStep = mipRowSize;
                 unsigned char* top = _data+_mipmapData[i];
-                unsigned char* bottom = top + (t-1)*rowStep;
+                unsigned char* bottom = top + (t-1)*mipRowStep;
 
-                flipImageVertical(top, bottom, rowSize, rowStep);
+                flipImageVertical(top, bottom, mipRowSize, mipRowStep);
             }
        }
     }
@@ -1930,13 +1950,13 @@ void _writeColor(GLenum pixelFormat, T* data, float scale, const Vec4& c)
     switch(pixelFormat)
     {
     case(GL_DEPTH_COMPONENT):   //intentionally fall through and execute the code for GL_LUMINANCE
-    case(GL_LUMINANCE):         { (*data++) = c[0] * scale; } break;
-    case(GL_ALPHA):             { (*data++) = c[3] * scale; } break;
-    case(GL_LUMINANCE_ALPHA):   { (*data++) = c[0] * scale;  (*data++) = c[3] * scale; } break;
-    case(GL_RGB):               { (*data++) = c[0] *scale; (*data++) = c[1] *scale; (*data++) = c[2] *scale;} break;
-    case(GL_RGBA):              { (*data++) = c[0] *scale; (*data++) = c[1] *scale; (*data++) = c[2] *scale; (*data++) = c[3] *scale;} break;
-    case(GL_BGR):               { (*data++) = c[2] *scale; (*data++) = c[1] *scale; (*data++) = c[0] *scale;} break;
-    case(GL_BGRA):              { (*data++) = c[2] *scale; (*data++) = c[1] *scale; (*data++) = c[0] *scale; (*data++) = c[3] *scale;} break;
+    case(GL_LUMINANCE):         { (*data++) = (T)(c[0] * scale); } break;
+    case(GL_ALPHA):             { (*data++) = (T)(c[3] * scale); } break;
+    case(GL_LUMINANCE_ALPHA):   { (*data++) = (T)(c[0] * scale);  (*data++) = (T)(c[3] * scale); } break;
+    case(GL_RGB):               { (*data++) = (T)(c[0] *scale); (*data++) = (T)(c[1] *scale); (*data++) = (T)(c[2] *scale);} break;
+    case(GL_RGBA):              { (*data++) = (T)(c[0] *scale); (*data++) = (T)(c[1] *scale); (*data++) = (T)(c[2] *scale); (*data++) = (T)(c[3] *scale);} break;
+    case(GL_BGR):               { (*data++) = (T)(c[2] *scale); (*data++) = (T)(c[1] *scale); (*data++) = (T)(c[0] *scale);} break;
+    case(GL_BGRA):              { (*data++) = (T)(c[2] *scale); (*data++) = (T)(c[1] *scale); (*data++) = (T)(c[0] *scale); (*data++) = (T)(c[3] *scale);} break;
     }
 
 }

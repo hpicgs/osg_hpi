@@ -19,6 +19,7 @@
 #include <osg/Texture3D>
 #include <osg/TextureRectangle>
 #include <osg/TextureCubeMap>
+#include <osg/ContextData>
 #include <osg/GLExtensions>
 #include <osg/GLU>
 
@@ -53,6 +54,7 @@ RenderStage::RenderStage():
     _clearStencil = 0;
 
     _cameraRequiresSetUp = false;
+    _cameraAttachmentMapModifiedCount = 0;
     _camera = 0;
 
     _level = 0;
@@ -83,6 +85,7 @@ RenderStage::RenderStage(SortMode mode):
     _clearStencil = 0;
 
     _cameraRequiresSetUp = false;
+    _cameraAttachmentMapModifiedCount = 0;
     _camera = 0;
 
     _level = 0;
@@ -109,6 +112,7 @@ RenderStage::RenderStage(const RenderStage& rhs,const osg::CopyOp& copyop):
         _clearDepth(rhs._clearDepth),
         _clearStencil(rhs._clearStencil),
         _cameraRequiresSetUp(rhs._cameraRequiresSetUp),
+        _cameraAttachmentMapModifiedCount(rhs._cameraAttachmentMapModifiedCount),
         _camera(rhs._camera),
         _level(rhs._level),
         _face(rhs._face),
@@ -226,6 +230,10 @@ void RenderStage::runCameraSetUp(osg::RenderInfo& renderInfo)
     _cameraRequiresSetUp = false;
 
     if (!_camera) return;
+
+    OSG_INFO<<"RenderStage::runCameraSetUp(osg::RenderInfo& renderInfo) "<<this<<std::endl;
+
+    _cameraAttachmentMapModifiedCount = _camera->getAttachmentMapModifiedCount();
 
     osg::State& state = *renderInfo.getState();
 
@@ -530,12 +538,8 @@ void RenderStage::runCameraSetUp(osg::RenderInfo& renderInfo)
                 fbo = 0;
 
                 // clean up.
-                double availableTime = 100.0f;
-                double currentTime = state.getFrameStamp()?state.getFrameStamp()->getReferenceTime():0.0;
-                osg::RenderBuffer::flushDeletedRenderBuffers(state.getContextID(),currentTime,availableTime);
-                osg::FrameBufferObject::flushDeletedFrameBufferObjects(state.getContextID(),currentTime,availableTime);
-
-
+                osg::get<osg::GLRenderBufferManager>(state.getContextID())->flushAllDeletedGLObjects();
+                osg::get<osg::GLFrameBufferObjectManager>(state.getContextID())->flushAllDeletedGLObjects();
             }
             else
             {
@@ -561,10 +565,8 @@ void RenderStage::runCameraSetUp(osg::RenderInfo& renderInfo)
                         _resolveFbo = 0;
 
                         // clean up.
-                        double availableTime = 100.0f;
-                        double currentTime = state.getFrameStamp()?state.getFrameStamp()->getReferenceTime():0.0;
-                        osg::RenderBuffer::flushDeletedRenderBuffers(state.getContextID(),currentTime,availableTime);
-                        osg::FrameBufferObject::flushDeletedFrameBufferObjects(state.getContextID(),currentTime,availableTime);
+                        osg::get<osg::GLRenderBufferManager>(state.getContextID())->flushAllDeletedGLObjects();
+                        osg::get<osg::GLFrameBufferObjectManager>(state.getContextID())->flushAllDeletedGLObjects();
                     }
                     else
                     {
@@ -603,7 +605,7 @@ void RenderStage::runCameraSetUp(osg::RenderInfo& renderInfo)
     while (!getGraphicsContext() &&
            (renderTargetImplementation==osg::Camera::PIXEL_BUFFER_RTT ||
             renderTargetImplementation==osg::Camera::PIXEL_BUFFER ||
-            renderTargetImplementation==osg::Camera::SEPERATE_WINDOW) )
+            renderTargetImplementation==osg::Camera::SEPARATE_WINDOW) )
     {
         osg::ref_ptr<osg::GraphicsContext> context = getGraphicsContext();
         if (!context)
@@ -618,8 +620,8 @@ void RenderStage::runCameraSetUp(osg::RenderInfo& renderInfo)
             // OSG_NOTICE<<"traits = "<<traits->width<<" "<<traits->height<<std::endl;
 
             traits->pbuffer = (renderTargetImplementation==osg::Camera::PIXEL_BUFFER || renderTargetImplementation==osg::Camera::PIXEL_BUFFER_RTT);
-            traits->windowDecoration = (renderTargetImplementation==osg::Camera::SEPERATE_WINDOW);
-            traits->doubleBuffer = (renderTargetImplementation==osg::Camera::SEPERATE_WINDOW);
+            traits->windowDecoration = (renderTargetImplementation==osg::Camera::SEPARATE_WINDOW);
+            traits->doubleBuffer = (renderTargetImplementation==osg::Camera::SEPARATE_WINDOW);
 
             osg::Texture* pBufferTexture = 0;
             GLenum bufferFormat = GL_NONE;
@@ -692,7 +694,7 @@ void RenderStage::runCameraSetUp(osg::RenderInfo& renderInfo)
                     }
                     default:
                     {
-                        if (renderTargetImplementation==osg::Camera::SEPERATE_WINDOW)
+                        if (renderTargetImplementation==osg::Camera::SEPARATE_WINDOW)
                         {
                             OSG_NOTICE<<"Warning: RenderStage::runCameraSetUp(State&) Window ";
                         }
@@ -1018,7 +1020,7 @@ void RenderStage::drawInner(osg::RenderInfo& renderInfo,RenderLeaf*& previous, b
                 }
             }
             // reset the read and draw buffers?  will comment out for now with the assumption that
-            // the buffers will be set explictly when needed elsewhere.
+            // the buffers will be set explicitly when needed elsewhere.
             // glReadBuffer(GL_COLOR_ATTACHMENT0_EXT);
             // glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);
         }
@@ -1115,6 +1117,7 @@ void RenderStage::drawInner(osg::RenderInfo& renderInfo,RenderLeaf*& previous, b
 struct DrawInnerOperation : public osg::Operation
 {
     DrawInnerOperation(RenderStage* stage, osg::RenderInfo& renderInfo) :
+        osg::Referenced(true),
         osg::Operation("DrawInnerStage",false),
         _stage(stage),
         _renderInfo(renderInfo) {}
@@ -1152,7 +1155,7 @@ void RenderStage::draw(osg::RenderInfo& renderInfo,RenderLeaf*& previous)
 
     if (_camera.valid() && _camera->getInitialDrawCallback())
     {
-        // if we have a camera with a intial draw callback invoke it.
+        // if we have a camera with a initial draw callback invoke it.
         (*(_camera->getInitialDrawCallback()))(renderInfo);
     }
 
@@ -1160,7 +1163,7 @@ void RenderStage::draw(osg::RenderInfo& renderInfo,RenderLeaf*& previous)
     // so there is no need to call it here.
     drawPreRenderStages(renderInfo,previous);
 
-    if (_cameraRequiresSetUp)
+    if (_cameraRequiresSetUp || (_camera.valid() && _cameraAttachmentMapModifiedCount!=_camera->getAttachmentMapModifiedCount()))
     {
         runCameraSetUp(renderInfo);
     }
@@ -1517,14 +1520,14 @@ void RenderStage::clearReferencesToDependentCameras()
         itr != _preRenderList.end();
         ++itr)
     {
-        itr->second->collateReferencesToDependentCameras();
+        itr->second->clearReferencesToDependentCameras();
     }
 
     for(RenderStageList::iterator itr = _postRenderList.begin();
         itr != _postRenderList.end();
         ++itr)
     {
-        itr->second->collateReferencesToDependentCameras();
+        itr->second->clearReferencesToDependentCameras();
     }
 
     _dependentCameras.clear();

@@ -17,9 +17,8 @@ static bool readStackedTransforms( osgDB::InputStream& is, osgAnimation::UpdateM
     unsigned int size = is.readSize(); is >> is.BEGIN_BRACKET;
     for ( unsigned int i=0; i<size; ++i )
     {
-        osgAnimation::StackedTransformElement* element =
-            dynamic_cast<osgAnimation::StackedTransformElement*>( is.readObject() );
-        if ( element ) transform.push_back( element );
+        osg::ref_ptr<osgAnimation::StackedTransformElement> element = is.readObjectOfType<osgAnimation::StackedTransformElement>();
+        if ( element ) transform.push_back( element.get() );
     }
     is >> is.END_BRACKET;
     return true;
@@ -41,7 +40,7 @@ static bool writeStackedTransforms( osgDB::OutputStream& os, const osgAnimation:
 REGISTER_OBJECT_WRAPPER( osgAnimation_UpdateMatrixTransform,
                          new osgAnimation::UpdateMatrixTransform,
                          osgAnimation::UpdateMatrixTransform,
-                         "osg::Object osg::NodeCallback osgAnimation::UpdateMatrixTransform" )
+                         "osg::Object osg::Callback osg::NodeCallback osgAnimation::UpdateMatrixTransform" )
 {
     ADD_USER_SERIALIZER( StackedTransforms );  // _transforms
 }

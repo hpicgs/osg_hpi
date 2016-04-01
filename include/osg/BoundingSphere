@@ -44,7 +44,7 @@ class BoundingSphereImpl
         BoundingSphereImpl() : _center(0.0,0.0,0.0),_radius(-1.0) {}
 
         /** Creates a bounding sphere initialized to the given extents. */
-        BoundingSphereImpl(const vec_type& center, value_type radius) : _center(center),_radius(radius) {}
+        BoundingSphereImpl(const vec_type& cntr, value_type rad) : _center(cntr),_radius(rad) {}
 
         /** Creates a bounding sphere initialized to the given extents. */
         BoundingSphereImpl(const BoundingSphereImpl& bs) : _center(bs._center),_radius(bs._radius) {}
@@ -180,7 +180,7 @@ void BoundingSphereImpl<VT>::expandRadiusBy(const vector_type& v)
 template<typename VT>
 void BoundingSphereImpl<VT>::expandBy(const BoundingSphereImpl& sh)
 {
-    // ignore operation if incomming BoundingSphere is invalid.
+    // ignore operation if incoming BoundingSphere is invalid.
     if (!sh.valid()) return;
 
     // This sphere is not set so use the inbound sphere

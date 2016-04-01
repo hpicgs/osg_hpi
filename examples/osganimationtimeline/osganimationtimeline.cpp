@@ -98,9 +98,9 @@ struct ExampleTimelineUsage : public osgGA::GUIEventHandler
         {
             // we add a scratch head priority 1 each 10 second
             // note:
-            //      it's possible to add the same instance more then once on the timeline
+            //      it's possible to add the same instance more than once on the timeline
             //      the only things you need to take care is if you remove it. It will remove
-            //      all instance that exist on the timeline. If you need to differtiate
+            //      all instance that exist on the timeline. If you need to differentiate
             //      it's better to create a new instance
             tml->addActionAt(5.0 + 10.0 * i, _scratchHead.get(), 1);
         }
@@ -163,7 +163,8 @@ int main (int argc, char* argv[])
         file = psr[1];
 
     // replace the manager
-    osg::Group* root = dynamic_cast<osg::Group*>(osgDB::readNodeFile(file));
+    osg::ref_ptr<osg::Node> loadedmodel = osgDB::readRefNodeFile(file);
+    osg::Group* root = dynamic_cast<osg::Group*>(loadedmodel.get());
     if (!root) {
         osg::notify(osg::FATAL) << "can't read file " << file << std::endl;
         return 1;

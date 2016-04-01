@@ -28,6 +28,7 @@
 #include <osg/Projection>
 #include <osg/Switch>
 #include <osg/Texture2D>
+#include <osg/ContextData>
 
 #include <osgDB/ReadFile>
 #include <osgGA/GUIEventHandler>
@@ -156,7 +157,7 @@ void getPossibleConfigs(GraphicsContext* gc, BufferConfigList& colorConfigs,
 bool checkFramebufferStatus(GraphicsContext* gc, bool silent = false)
 {
     State& state = *gc->getState();
-    osg::GLExtensions* ext = gc->getState()->get<GLExtensions>();
+    osg::GLExtensions* ext = state.get<GLExtensions>();
     switch(ext->glCheckFramebufferStatus(GL_FRAMEBUFFER_EXT)) {
         case GL_FRAMEBUFFER_COMPLETE_EXT:
             break;
@@ -313,12 +314,9 @@ void destroyFBO(GraphicsContext* gc, FboData &data)
     data.fb = 0;
     data.resolveFB = 0;
     State& state = *gc->getState();
-    double availableTime = 100.0;
-    RenderBuffer::flushDeletedRenderBuffers(state.getContextID(), 0.0,
-                                            availableTime);
-    availableTime = 100.0;
-    FrameBufferObject::flushDeletedFrameBufferObjects(state.getContextID(),
-                                                      0.0, availableTime);
+
+    osg::get<GLRenderBufferManager>(state.getContextID())->flushAllDeletedGLObjects();
+    osg::get<GLFrameBufferObjectManager>(state.getContextID())->flushAllDeletedGLObjects();
 }
 
 void setAttachmentsFromConfig(Camera* camera, const FboConfig& config);
@@ -963,7 +961,7 @@ int main(int argc, char **argv)
         arguments.getApplicationUsage()->write(std::cout,osg::ApplicationUsage::COMMAND_LINE_OPTION);
         return 1;
     }
-    ref_ptr<Node> loadedModel = osgDB::readNodeFiles(arguments);
+    ref_ptr<Node> loadedModel = osgDB::readRefNodeFiles(arguments);
     if (!loadedModel) {
         cerr << "couldn't load " << argv[1] << "\n";
         return 1;

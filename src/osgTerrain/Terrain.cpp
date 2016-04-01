@@ -28,6 +28,7 @@ Terrain::Terrain():
     _equalizeBoundaries(false)
 {
     setNumChildrenRequiringUpdateTraversal(1);
+    _geometryPool = new GeometryPool;
 }
 
 Terrain::Terrain(const Terrain& ts, const osg::CopyOp& copyop):
@@ -36,6 +37,7 @@ Terrain::Terrain(const Terrain& ts, const osg::CopyOp& copyop):
     _verticalScale(ts._verticalScale),
     _blendingPolicy(ts._blendingPolicy),
     _equalizeBoundaries(ts._equalizeBoundaries),
+    _geometryPool(ts._geometryPool),
     _terrainTechnique(ts._terrainTechnique)
 {
     setNumChildrenRequiringUpdateTraversal(getNumChildrenRequiringUpdateTraversal()+1);
@@ -90,7 +92,7 @@ void Terrain::traverse(osg::NodeVisitor& nv)
     if (nv.getVisitorType()==osg::NodeVisitor::UPDATE_VISITOR)
     {
         // need to check if any TerrainTechniques need to have their update called on them.
-        osgUtil::UpdateVisitor* uv = dynamic_cast<osgUtil::UpdateVisitor*>(&nv);
+        osgUtil::UpdateVisitor* uv = nv.asUpdateVisitor();
         if (uv)
         {
             typedef std::list< osg::ref_ptr<TerrainTile> >  TerrainTileList;
@@ -118,6 +120,19 @@ void Terrain::traverse(osg::NodeVisitor& nv)
                 TerrainTile* tile = itr->get();
                 tile->traverse(nv);
             }
+        }
+    }
+
+    if (nv.getVisitorType()==osg::NodeVisitor::CULL_VISITOR)
+    {
+        osgUtil::CullVisitor* cv = nv.asCullVisitor();
+        osg::StateSet* ss = _geometryPool.valid() ? _geometryPool->getRootStateSetForTerrain(this) : 0;
+        if (cv && ss)
+        {
+            cv->pushStateSet(ss);
+            Group::traverse(nv);
+            cv->popStateSet();
+            return;
         }
     }
 

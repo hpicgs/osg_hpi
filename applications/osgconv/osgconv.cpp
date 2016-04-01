@@ -157,6 +157,7 @@ public:
         }
 
         osg::ref_ptr<osg::State> state = new osg::State;
+        state->initializeExtensionProcs();
 
         for(TextureSet::iterator itr=_textureSet.begin();
             itr!=_textureSet.end();
@@ -174,7 +175,7 @@ public:
             {
                 texture->setInternalFormatMode(_internalFormatMode);
 
-                // need to disable the unref after apply, other the image could go out of scope.
+                // need to disable the unref after apply, otherwise the image could go out of scope.
                 bool unrefImageDataAfterApply = texture->getUnRefImageDataAfterApply();
                 texture->setUnRefImageDataAfterApply(false);
 
@@ -371,16 +372,6 @@ public:
         {
             node.setStateSet(0);
             ++_numStateSetRemoved;
-        }
-
-        for(unsigned int i=0;i<node.getNumDrawables();++i)
-        {
-            osg::Drawable* drawable = node.getDrawable(i);
-            if (drawable && drawable->getStateSet())
-            {
-                drawable->setStateSet(0);
-                ++_numStateSetRemoved;
-            }
         }
 
         traverse(node);
@@ -781,7 +772,7 @@ int main( int argc, char **argv )
 
     osg::Timer_t startTick = osg::Timer::instance()->tick();
 
-    osg::ref_ptr<osg::Node> root = osgDB::readNodeFiles(fileNames);
+    osg::ref_ptr<osg::Node> root = osgDB::readRefNodeFiles(fileNames);
 
     if (root.valid())
     {
@@ -817,7 +808,7 @@ int main( int argc, char **argv )
             root->accept(av);
         }
 
-        // optimize the scene graph, remove rendundent nodes and state etc.
+        // optimize the scene graph, remove redundant nodes and state etc.
         osgUtil::Optimizer optimizer;
         optimizer.optimize(root.get());
 

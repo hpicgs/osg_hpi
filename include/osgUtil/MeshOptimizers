@@ -94,7 +94,7 @@ class OSGUTIL_EXPORT VertexAccessOrderVisitor : public GeometryCollector
         inline bool operator() (const osg::ref_ptr<osg::PrimitiveSet>& prim1, const osg::ref_ptr<osg::PrimitiveSet>& prim2)
         {
             if(prim1 && prim2) {
-                return prim1->getMode() >= prim2->getMode();
+                return prim1->getMode() > prim2->getMode();
             }
             else if(prim1) {
                 return true;
@@ -111,5 +111,15 @@ public:
     void optimizeOrder();
     void optimizeOrder(osg::Geometry& geom);
 };
+
+class OSGUTIL_EXPORT SharedArrayOptimizer
+{
+public:
+    void findDuplicatedUVs(const osg::Geometry& geometry);
+    void deduplicateUVs(osg::Geometry& geometry);
+protected:
+    std::map<unsigned int, unsigned int> _deduplicateUvs;
+}; // SharedArrayOptimizer
+
 }
 #endif

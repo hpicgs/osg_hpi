@@ -7,7 +7,7 @@
 
 #include <iostream>
 
-// Search in str for all occurences of spat and replace them with rpat.
+// Search in str for all occurrences of spat and replace them with rpat.
 void searchAndReplace(std::string& str, const std::string& spat, const std::string& rpat)
 {
     std::string::size_type pos = 0;
@@ -85,7 +85,7 @@ int main( int argc, char **argv )
     std::string filename;
     if (arguments.read("--shader",filename))
     {
-        osg::ref_ptr<osg::Shader> shader = osgDB::readShaderFile(filename);
+        osg::ref_ptr<osg::Shader> shader = osgDB::readRefShaderFile(filename);
         if (shader.valid())
         {
             std::string name = osgDB::getStrippedName(filename);

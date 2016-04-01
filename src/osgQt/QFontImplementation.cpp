@@ -90,12 +90,12 @@ QFontImplementation::getGlyph(const osgText::FontResolution& fontRes, unsigned i
 
     // the glyph texture in osg
     glyph->setImage(imageWidth, imageHeight, 1,
-                    GL_ALPHA,
-                    GL_ALPHA, GL_UNSIGNED_BYTE,
+                    OSGTEXT_GLYPH_INTERNALFORMAT,
+                    OSGTEXT_GLYPH_FORMAT, GL_UNSIGNED_BYTE,
                     data,
                     osg::Image::USE_NEW_DELETE,
                     1);
-    glyph->setInternalTextureFormat(GL_ALPHA);
+    glyph->setInternalTextureFormat(OSGTEXT_GLYPH_INTERNALFORMAT);
 
     glyph->setWidth((float)imageWidth * coord_scale);
     glyph->setHeight((float)imageHeight * coord_scale);
@@ -122,7 +122,7 @@ QFontImplementation::getGlyph(const osgText::FontResolution& fontRes, unsigned i
 }
 
 osg::Vec2
-QFontImplementation::getKerning(unsigned int /*leftcharcode*/, unsigned int /*rightcharcode*/, osgText::KerningType /*kerningType*/)
+QFontImplementation::getKerning(const osgText::FontResolution& /*fontRes*/, unsigned int /*leftcharcode*/, unsigned int /*rightcharcode*/, osgText::KerningType /*kerningType*/)
 {
     return osg::Vec2(0, 0);
 }

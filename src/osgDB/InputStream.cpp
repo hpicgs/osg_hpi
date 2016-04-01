@@ -15,9 +15,11 @@
 #include <osg/Notify>
 #include <osg/ImageSequence>
 #include <osgDB/ReadFile>
+#include <osgDB/WriteFile>
 #include <osgDB/XmlParser>
 #include <osgDB/FileNameUtils>
 #include <osgDB/ObjectWrapper>
+#include <osgDB/ConvertBase64>
 
 using namespace osgDB;
 
@@ -318,7 +320,7 @@ InputStream& InputStream::operator>>( osg::BoundingSphered& bs)
 
 
 
-osg::Array* InputStream::readArray()
+osg::ref_ptr<osg::Array> InputStream::readArray()
 {
     osg::ref_ptr<osg::Array> array = NULL;
 
@@ -569,10 +571,10 @@ osg::Array* InputStream::readArray()
     if ( getException() ) return NULL;
     _arrayMap[id] = array;
 
-    return array.release();
+    return array;
 }
 
-osg::PrimitiveSet* InputStream::readPrimitiveSet()
+osg::ref_ptr<osg::PrimitiveSet> InputStream::readPrimitiveSet()
 {
     osg::ref_ptr<osg::PrimitiveSet> primitive = NULL;
 
@@ -661,10 +663,10 @@ osg::PrimitiveSet* InputStream::readPrimitiveSet()
     }
 
     if ( getException() ) return NULL;
-    return primitive.release();
+    return primitive;
 }
 
-osg::Image* InputStream::readImage(bool readFromExternal)
+osg::ref_ptr<osg::Image> InputStream::readImage(bool readFromExternal)
 {
     std::string className = "osg::Image";
     if ( _fileVersion>94 )  // ClassName property is only supported in 3.1.4 and higher
@@ -726,6 +728,61 @@ osg::Image* InputStream::readImage(bool readFromExternal)
             if ( image && levelSize>0 )
                 image->setMipmapLevels( levels );
             readFromExternal = false;
+        } else { // ASCII
+            // _origin, _s & _t & _r, _internalTextureFormat
+            int origin, s, t, r, internalFormat;
+            *this >> PROPERTY("Origin") >> origin;
+            *this >> PROPERTY("Size") >> s >> t >> r;
+            *this >> PROPERTY("InternalTextureFormat") >> internalFormat;
+
+            // _pixelFormat, _dataType, _packing, _allocationMode
+            int pixelFormat, dataType, packing, mode;
+            *this >> PROPERTY("PixelFormat") >> pixelFormat;
+            *this >> PROPERTY("DataType") >> dataType;
+            *this >> PROPERTY("Packing") >> packing;
+            *this >> PROPERTY("AllocationMode") >> mode;
+
+            *this >> PROPERTY("Data");
+            unsigned int levelSize = readSize()-1;
+            *this >> BEGIN_BRACKET;
+
+            // _data
+            std::vector<std::string> encodedData;
+            encodedData.resize(levelSize+1);
+            readWrappedString(encodedData.at(0));
+
+            // Read all mipmap levels and to also add them to char* data
+            // _mipmapData
+            osg::Image::MipmapDataType levels(levelSize);
+            for ( unsigned int i=1; i<=levelSize; ++i )
+            {
+                //*this >> levels[i];
+                readWrappedString(encodedData.at(i));
+            }
+
+            Base64decoder d;
+            char* data = d.decode(encodedData, levels);
+            // remove last item as we do not need the actual size
+            // of the image including all mipmaps
+            levels.pop_back();
+
+            *this >> END_BRACKET;
+
+            if ( !data )
+                throwException( "InputStream::readImage() Decoding of stream failed. Out of memory." );
+            if ( getException() ) return NULL;
+
+            image = new osg::Image;
+            image->setOrigin( (osg::Image::Origin)origin );
+            image->setImage( s, t, r, internalFormat, pixelFormat, dataType,
+                (unsigned char*)data, (osg::Image::AllocationMode)mode, packing );
+
+            // Level positions (size of mipmap data)
+            // from actual size of mipmap data read before
+            if ( image && levelSize>0 )
+                image->setMipmapLevels( levels );
+
+            readFromExternal = false;
         }
         break;
     case IMAGE_INLINE_FILE:
@@ -756,7 +813,7 @@ osg::Image* InputStream::readImage(bool readFromExternal)
                     else
                     {
                         OSG_WARN << "InputStream::readImage(): "
-                                               << rr.message() << std::endl;
+                                               << rr.statusMessage() << std::endl;
                     }
                 }
                 else
@@ -786,7 +843,7 @@ osg::Image* InputStream::readImage(bool readFromExternal)
         }
         else
         {
-            if (rr.error()) OSG_WARN << rr.message() << std::endl;
+            if (!rr.success()) OSG_WARN << rr.statusMessage() << std::endl;
         }
 
         if ( !image && _forceReadingImage ) image = new osg::Image;
@@ -801,38 +858,45 @@ osg::Image* InputStream::readImage(bool readFromExternal)
     }
     else
     {
-        image = static_cast<osg::Image*>( readObjectFields("osg::Object", id, image.get()) );
+        image = readObjectFieldsOfType<osg::Image>("osg::Object", id, image.get());
         if ( image.valid() )
         {
             image->setFileName( name );
             image->setWriteHint( (osg::Image::WriteHint)writeHint );
         }
     }
-    return image.release();
+    return image;
 }
 
-osg::Object* InputStream::readObject( osg::Object* existingObj )
+osg::ref_ptr<osg::Object> InputStream::readObject( osg::Object* existingObj )
 {
     std::string className;
     unsigned int id = 0;
-    *this >> className >> BEGIN_BRACKET >> PROPERTY("UniqueID") >> id;
-    if ( getException() ) return NULL;
+    *this >> className;
+
+    if (className=="NULL")
+    {
+        return 0;
+    }
+
+    *this >> BEGIN_BRACKET >> PROPERTY("UniqueID") >> id;
+    if ( getException() ) return 0;
 
     IdentifierMap::iterator itr = _identifierMap.find( id );
     if ( itr!=_identifierMap.end() )
     {
         advanceToCurrentEndBracket();
-        return itr->second.get();
+        return itr->second;
     }
 
     osg::ref_ptr<osg::Object> obj = readObjectFields( className, id, existingObj );
 
     advanceToCurrentEndBracket();
 
-    return obj.release();
+    return obj;
 }
 
-osg::Object* InputStream::readObjectFields( const std::string& className, unsigned int id, osg::Object* existingObj )
+osg::ref_ptr<osg::Object> InputStream::readObjectFields( const std::string& className, unsigned int id, osg::Object* existingObj )
 {
     ObjectWrapper* wrapper = Registry::instance()->getObjectWrapperManager()->findWrapper( className );
     if ( !wrapper )
@@ -863,7 +927,7 @@ osg::Object* InputStream::readObjectFields( const std::string& className, unsign
             _fields.pop_back();
         }
     }
-    return obj.release();
+    return obj;
 }
 
 void InputStream::readSchema( std::istream& fin )

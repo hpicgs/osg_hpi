@@ -9,9 +9,9 @@
 /* PagedLoadingCallback: Callback for loading paged nodes while doing intersecting test */
 struct PagedLoadingCallback : public osgUtil::IntersectionVisitor::ReadCallback
 {
-    virtual osg::Node* readNodeFile( const std::string& filename )
+    virtual osg::ref_ptr<osg::Node> readNodeFile( const std::string& filename )
     {
-        return osgDB::readNodeFile( filename );
+        return osgDB::readRefNodeFile( filename );
     }
 };
 static osg::ref_ptr<PagedLoadingCallback> g_pagedLoadingCallback = new PagedLoadingCallback;
@@ -365,7 +365,7 @@ void PosterPrinter::bindCameraToImage( osg::Camera* camera, int row, int col )
     camera->accept( iv );
     if ( _intersector->containsIntersections() )
     {
-        // Apply a cull calback to every paged node obtained, to force the highest level displaying.
+        // Apply a cull callback to every paged node obtained, to force the highest level displaying.
         // This will be done by the PosterVisitor, who already records all the paged nodes.
     }
 

@@ -69,7 +69,7 @@ osgText::Glyph* DefaultFont::getGlyph(const FontResolution& fontRes, unsigned in
 }
 
 
-osg::Vec2 DefaultFont::getKerning(unsigned int,unsigned int, KerningType)
+osg::Vec2 DefaultFont::getKerning(const osgText::FontResolution&, unsigned int, unsigned int, KerningType)
 {
     // no kerning on default font.
     return osg::Vec2(0.0f,0.0f);
@@ -198,13 +198,13 @@ void DefaultFont::constructGlyphs()
         for(unsigned char* p=data;p<data+dataSize;) { *p++ = 0; }
 
         glyph->setImage(sourceWidth,sourceHeight,1,
-                        GL_ALPHA,
-                        GL_ALPHA,GL_UNSIGNED_BYTE,
+                        OSGTEXT_GLYPH_INTERNALFORMAT,
+                        OSGTEXT_GLYPH_FORMAT, GL_UNSIGNED_BYTE,
                         data,
                         osg::Image::USE_NEW_DELETE,
                         1);
 
-        glyph->setInternalTextureFormat(GL_ALPHA);
+        glyph->setInternalTextureFormat(OSGTEXT_GLYPH_INTERNALFORMAT);
 
         // now populate data array by converting bitmap into a luminance_alpha map.
         unsigned char* ptr = rasters[i-32];

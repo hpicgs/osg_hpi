@@ -11,8 +11,7 @@
  * OpenSceneGraph Public License for more details.
 */
 
-#include <osgTerrain/Layer>
-#include <osgTerrain/TerrainTile>
+#include <osgTerrain/Terrain>
 #include <osgTerrain/DisplacementMappingTechnique>
 
 
@@ -25,14 +24,11 @@ using namespace osgTerrain;
 DisplacementMappingTechnique::DisplacementMappingTechnique()
 {
     // OSG_NOTICE<<"DisplacementMappingTechnique::DisplacementMappingTechnique()"<<std::endl;
-    _geometryPool = new GeometryPool;
 }
 
 DisplacementMappingTechnique::DisplacementMappingTechnique(const DisplacementMappingTechnique& st,const osg::CopyOp& copyop):
-    osgTerrain::TerrainTechnique(st, copyop),
-    _geometryPool(st._geometryPool)
+    osgTerrain::TerrainTechnique(st, copyop)
 {
-    // OSG_NOTICE<<"DisplacementMappingTechnique::DisplacementMappingTechnique(DisplacementMappingTechnique&, CopyOp&) "<<_geometryPool.get()<<std::endl;
 }
 
 DisplacementMappingTechnique::~DisplacementMappingTechnique()
@@ -42,10 +38,12 @@ DisplacementMappingTechnique::~DisplacementMappingTechnique()
 void DisplacementMappingTechnique::init(int dirtyMask, bool assumeMultiThreaded)
 {
     if (!_terrainTile) return;
+    if (!_terrainTile->getTerrain()) return;
 
     //OSG_NOTICE<<"DisplacementMappingTechnique::init("<<dirtyMask<<", "<<assumeMultiThreaded<<")"<<std::endl;
 
-    _transform = _geometryPool->getTileSubgraph(_terrainTile);
+    GeometryPool* geometryPool = _terrainTile->getTerrain()->getGeometryPool();
+    _transform = geometryPool->getTileSubgraph(_terrainTile);
 
     // set tile as no longer dirty.
     _terrainTile->setDirtyMask(0);
@@ -74,7 +72,7 @@ void DisplacementMappingTechnique::traverse(osg::NodeVisitor& nv)
     {
         // if (_terrainTile->getDirty()) _terrainTile->init(_terrainTile->getDirtyMask(), false);
 
-        osgUtil::UpdateVisitor* uv = dynamic_cast<osgUtil::UpdateVisitor*>(&nv);
+        osgUtil::UpdateVisitor* uv = nv.asUpdateVisitor();
         if (uv)
         {
             update(uv);
@@ -83,7 +81,7 @@ void DisplacementMappingTechnique::traverse(osg::NodeVisitor& nv)
     }
     else if (nv.getVisitorType()==osg::NodeVisitor::CULL_VISITOR)
     {
-        osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(&nv);
+        osgUtil::CullVisitor* cv = nv.asCullVisitor();
         if (cv)
         {
             cull(cv);

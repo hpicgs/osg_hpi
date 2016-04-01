@@ -347,13 +347,13 @@ osgText::Glyph* FreeTypeFont::getGlyph(const osgText::FontResolution& fontRes, u
     for(unsigned char* p=data;p<data+dataSize;) { *p++ = 0; }
 
     glyph->setImage(width,height,1,
-                    GL_ALPHA,
-                    GL_ALPHA,GL_UNSIGNED_BYTE,
+                    OSGTEXT_GLYPH_INTERNALFORMAT,
+                    OSGTEXT_GLYPH_FORMAT, GL_UNSIGNED_BYTE,
                     data,
                     osg::Image::USE_NEW_DELETE,
                     1);
 
-    glyph->setInternalTextureFormat(GL_ALPHA);
+    glyph->setInternalTextureFormat(OSGTEXT_GLYPH_INTERNALFORMAT);
 
     // copy image across to osgText::Glyph image.
     switch(glyphslot->bitmap.pixel_mode)
@@ -413,9 +413,11 @@ osgText::Glyph* FreeTypeFont::getGlyph(const osgText::FontResolution& fontRes, u
 
 }
 
-osgText::Glyph3D * FreeTypeFont::getGlyph3D(unsigned int charcode)
+osgText::Glyph3D * FreeTypeFont::getGlyph3D(const osgText::FontResolution& fontRes, unsigned int charcode)
 {
     OpenThreads::ScopedLock<OpenThreads::Mutex> lock(FreeTypeLibrary::instance()->getMutex());
+
+    setFontResolution(fontRes);
 
     //
     // GT: fix for symbol fonts (i.e. the Webdings font) as the wrong character are being
@@ -515,9 +517,11 @@ osgText::Glyph3D * FreeTypeFont::getGlyph3D(unsigned int charcode)
     return glyph.release();
 }
 
-osg::Vec2 FreeTypeFont::getKerning(unsigned int leftcharcode,unsigned int rightcharcode, osgText::KerningType kerningType)
+osg::Vec2 FreeTypeFont::getKerning(const osgText::FontResolution& fontRes, unsigned int leftcharcode, unsigned int rightcharcode, osgText::KerningType kerningType)
 {
     OpenThreads::ScopedLock<OpenThreads::Mutex> lock(FreeTypeLibrary::instance()->getMutex());
+
+    setFontResolution(fontRes);
 
     if (!FT_HAS_KERNING(_face) || (kerningType == osgText::KERNING_NONE)) return osg::Vec2(0.0f,0.0f);
 
